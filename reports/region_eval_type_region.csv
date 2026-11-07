@@ -1,0 +1,13 @@
+region,model,hour_utc,test_rows,baseline_pr_auc,precision_static,recall_static,f1_static,pr_auc_static,threshold
+South Asia,Random Forest,False,46909,0.0297,0.1478,0.8982,0.2538,0.1631,0.3753
+South Asia,XGBoost,False,46909,0.0297,0.1502,0.914,0.258,0.1796,0.664
+South Asia,Random Forest,True,46909,0.0297,0.1327,0.0215,0.037,0.0708,0.4742
+South Asia,XGBoost,True,46909,0.0297,0.0,0.0,0.0,0.128,0.7306
+Southeast Asia,Random Forest,False,14034,0.2724,0.5591,0.6484,0.6005,0.5101,0.3454
+Southeast Asia,XGBoost,False,14034,0.2724,0.5634,0.6699,0.612,0.5062,0.7009
+Southeast Asia,Random Forest,True,14034,0.2724,0.0,0.0,0.0,0.3499,0.4847
+Southeast Asia,XGBoost,True,14034,0.2724,0.0,0.0,0.0,0.4481,0.7679
+North and Central America,Random Forest,False,196898,0.1611,0.4046,0.6798,0.5072,0.3968,0.3309
+North and Central America,XGBoost,False,196898,0.1611,0.4377,0.7414,0.5504,0.4223,0.7476
+North and Central America,Random Forest,True,196898,0.1611,0.4143,0.4573,0.4347,0.3914,0.4345
+North and Central America,XGBoost,True,196898,0.1611,0.3559,0.1849,0.2434,0.3883,0.8101

@@ -1,0 +1,101 @@
+precision_static,recall_static,f1_static,pr_auc_static,threshold,setup,model,subset,n_test,baseline_pr_auc,params,seed,recall_fire,precision_fire,f1_fire,roc_auc
+0.7681,0.8293,0.7975,0.7796,3.0,Rule,distinct_days_prior_30 >= 3,all rows,52354,0.1526,,42,,,,
+0.7715,0.8623,0.8144,0.7974,3.0,Rule,distinct_days_prior_30 >= 3,days_into_data >= 30,46695,0.1547,,42,,,,
+0.8358,0.9144,0.8733,0.9169,0.5386,B instant+history,Random Forest,all rows,52354,0.1526,,42,0.9677,0.9843,0.9759,0.9868
+0.8448,0.9294,0.8851,0.9255,0.5386,B instant+history,Random Forest,days_into_data >= 30,46695,0.1547,,42,0.9687,0.9868,0.9777,0.9883
+0.8391,0.9101,0.8732,0.9225,0.8185,B instant+history,XGBoost,all rows,52354,0.1526,,42,0.9686,0.9836,0.976,0.987
+0.8496,0.9264,0.8863,0.9321,0.8185,B instant+history,XGBoost,days_into_data >= 30,46695,0.1547,,42,0.97,0.9863,0.9781,0.9887
+0.8405,0.9169,0.877,0.9259,0.779,B instant+history,XGBoost tuned,all rows,52354,0.1526,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",42,0.9687,0.9848,0.9767,0.9877
+0.8494,0.9329,0.8892,0.935,0.779,B instant+history,XGBoost tuned,days_into_data >= 30,46695,0.1547,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",42,0.9697,0.9875,0.9785,0.9893
+0.8488,0.9229,0.8843,0.9278,0.5148,D instant+history v1+v2,Random Forest,all rows,52354,0.1526,,42,0.9704,0.9859,0.9781,0.9884
+0.856,0.937,0.8947,0.9358,0.5148,D instant+history v1+v2,Random Forest,days_into_data >= 30,46695,0.1547,,42,0.9711,0.9883,0.9796,0.9897
+0.8537,0.9132,0.8825,0.9317,0.8148,D instant+history v1+v2,XGBoost,all rows,52354,0.1526,,42,0.9718,0.9842,0.978,0.9885
+0.8629,0.928,0.8943,0.9402,0.8148,D instant+history v1+v2,XGBoost,days_into_data >= 30,46695,0.1547,,42,0.973,0.9866,0.9798,0.99
+0.8639,0.9052,0.8841,0.9356,0.8093,D instant+history v1+v2,XGBoost tuned,all rows,52354,0.1526,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",42,0.9743,0.9828,0.9785,0.9891
+0.8704,0.9212,0.8951,0.9443,0.8093,D instant+history v1+v2,XGBoost tuned,days_into_data >= 30,46695,0.1547,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",42,0.9749,0.9854,0.9801,0.9905
+0.8643,0.8782,0.8712,0.9165,0.6453,E history v1+v2 only,Random Forest,all rows,52354,0.1526,,42,0.9752,0.978,0.9766,0.983
+0.8705,0.9023,0.8861,0.9287,0.6453,E history v1+v2 only,Random Forest,days_into_data >= 30,46695,0.1547,,42,0.9754,0.982,0.9787,0.9859
+0.8447,0.9119,0.877,0.9226,0.7817,E history v1+v2 only,XGBoost,all rows,52354,0.1526,,42,0.9698,0.9839,0.9768,0.9849
+0.854,0.9304,0.8906,0.9335,0.7817,E history v1+v2 only,XGBoost,days_into_data >= 30,46695,0.1547,,42,0.9709,0.987,0.9789,0.9874
+0.8528,0.9028,0.8771,0.924,0.7819,E history v1+v2 only,XGBoost tuned,all rows,52354,0.1526,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",42,0.9719,0.9823,0.9771,0.9851
+0.8603,0.9236,0.8908,0.9358,0.7819,E history v1+v2 only,XGBoost tuned,days_into_data >= 30,46695,0.1547,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",42,0.9725,0.9858,0.9791,0.9876
+0.7305,0.7848,0.7567,0.7204,3.0,Rule,distinct_days_prior_30 >= 3,all rows,50122,0.1176,,43,,,,
+0.7281,0.8234,0.7728,0.7405,3.0,Rule,distinct_days_prior_30 >= 3,days_into_data >= 30,44613,0.1184,,43,,,,
+0.8087,0.896,0.8501,0.9031,0.5481,B instant+history,Random Forest,all rows,50122,0.1176,,43,0.9717,0.9859,0.9788,0.9853
+0.8163,0.9139,0.8623,0.9118,0.5481,B instant+history,Random Forest,days_into_data >= 30,44613,0.1184,,43,0.9724,0.9882,0.9803,0.9875
+0.8048,0.8962,0.848,0.9031,0.8082,B instant+history,XGBoost,all rows,50122,0.1176,,43,0.971,0.9859,0.9784,0.9866
+0.8128,0.9122,0.8596,0.9126,0.8082,B instant+history,XGBoost,days_into_data >= 30,44613,0.1184,,43,0.9718,0.988,0.9798,0.9885
+0.8096,0.8935,0.8495,0.9058,0.7839,B instant+history,XGBoost tuned,all rows,50122,0.1176,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",43,0.972,0.9856,0.9787,0.9869
+0.8161,0.9093,0.8602,0.9146,0.7839,B instant+history,XGBoost tuned,days_into_data >= 30,44613,0.1184,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",43,0.9725,0.9876,0.98,0.9888
+0.8182,0.8879,0.8516,0.9097,0.5512,D instant+history v1+v2,Random Forest,all rows,50122,0.1176,,43,0.9737,0.9849,0.9793,0.9874
+0.8229,0.9087,0.8637,0.9182,0.5512,D instant+history v1+v2,Random Forest,days_into_data >= 30,44613,0.1184,,43,0.9737,0.9876,0.9806,0.9894
+0.8107,0.8852,0.8463,0.915,0.8132,D instant+history v1+v2,XGBoost,all rows,50122,0.1176,,43,0.9724,0.9845,0.9784,0.9879
+0.8157,0.9034,0.8573,0.9245,0.8132,D instant+history v1+v2,XGBoost,days_into_data >= 30,44613,0.1184,,43,0.9726,0.9868,0.9797,0.9898
+0.8049,0.8952,0.8477,0.9149,0.7483,D instant+history v1+v2,XGBoost tuned,all rows,50122,0.1176,"{""n_estimators"": 300, ""max_depth"": 5, ""learning_rate"": 0.1, ""subsample"": 0.6, ""colsample_bytree"": 0.9, ""min_child_weight"": 10}",43,0.9711,0.9858,0.9784,0.9879
+0.8118,0.9091,0.8577,0.9235,0.7483,D instant+history v1+v2,XGBoost tuned,days_into_data >= 30,44613,0.1184,"{""n_estimators"": 300, ""max_depth"": 5, ""learning_rate"": 0.1, ""subsample"": 0.6, ""colsample_bytree"": 0.9, ""min_child_weight"": 10}",43,0.9717,0.9876,0.9796,0.9897
+0.7815,0.8845,0.8298,0.8934,0.5611,E history v1+v2 only,Random Forest,all rows,50122,0.1176,,43,0.967,0.9843,0.9756,0.9815
+0.805,0.9065,0.8527,0.9067,0.5611,E history v1+v2 only,Random Forest,days_into_data >= 30,44613,0.1184,,43,0.9705,0.9872,0.9788,0.9848
+0.8043,0.885,0.8427,0.9069,0.7797,E history v1+v2 only,XGBoost,all rows,50122,0.1176,,43,0.9713,0.9845,0.9778,0.9836
+0.8095,0.9099,0.8568,0.9187,0.7797,E history v1+v2 only,XGBoost,days_into_data >= 30,44613,0.1184,,43,0.9712,0.9877,0.9794,0.9863
+0.8078,0.8742,0.8397,0.9036,0.7924,E history v1+v2 only,XGBoost tuned,all rows,50122,0.1176,"{""n_estimators"": 200, ""max_depth"": 3, ""learning_rate"": 0.15, ""subsample"": 0.8, ""colsample_bytree"": 1.0, ""min_child_weight"": 1}",43,0.9723,0.983,0.9776,0.9832
+0.813,0.8987,0.8537,0.9156,0.7924,E history v1+v2 only,XGBoost tuned,days_into_data >= 30,44613,0.1184,"{""n_estimators"": 200, ""max_depth"": 3, ""learning_rate"": 0.15, ""subsample"": 0.8, ""colsample_bytree"": 1.0, ""min_child_weight"": 1}",43,0.9722,0.9862,0.9792,0.9859
+0.7746,0.8118,0.7928,0.818,3.0,Rule,distinct_days_prior_30 >= 3,all rows,51190,0.142,,44,,,,
+0.7741,0.8432,0.8072,0.8383,3.0,Rule,distinct_days_prior_30 >= 3,days_into_data >= 30,45471,0.1432,,44,,,,
+0.8439,0.9041,0.873,0.9342,0.5624,B instant+history,Random Forest,all rows,51190,0.142,,44,0.9723,0.9839,0.9781,0.9886
+0.8497,0.9178,0.8825,0.9415,0.5624,B instant+history,Random Forest,days_into_data >= 30,45471,0.1432,,44,0.9729,0.9861,0.9794,0.99
+0.8368,0.9103,0.872,0.9361,0.8138,B instant+history,XGBoost,all rows,51190,0.142,,44,0.9706,0.9849,0.9777,0.989
+0.8461,0.924,0.8833,0.9447,0.8138,B instant+history,XGBoost,days_into_data >= 30,45471,0.1432,,44,0.9719,0.9871,0.9794,0.9905
+0.8476,0.9127,0.8789,0.9418,0.7921,B instant+history,XGBoost tuned,all rows,51190,0.142,"{""n_estimators"": 200, ""max_depth"": 6, ""learning_rate"": 0.1, ""subsample"": 0.9, ""colsample_bytree"": 1.0, ""min_child_weight"": 1}",44,0.9728,0.9854,0.9791,0.9899
+0.8551,0.9246,0.8885,0.9495,0.7921,B instant+history,XGBoost tuned,days_into_data >= 30,45471,0.1432,"{""n_estimators"": 200, ""max_depth"": 6, ""learning_rate"": 0.1, ""subsample"": 0.9, ""colsample_bytree"": 1.0, ""min_child_weight"": 1}",44,0.9738,0.9872,0.9805,0.9913
+0.8438,0.9219,0.8811,0.9413,0.519,D instant+history v1+v2,Random Forest,all rows,51190,0.142,,44,0.9717,0.9869,0.9792,0.9897
+0.8512,0.932,0.8897,0.9482,0.519,D instant+history v1+v2,Random Forest,days_into_data >= 30,45471,0.1432,,44,0.9728,0.9884,0.9805,0.9909
+0.8404,0.9224,0.8795,0.9446,0.792,D instant+history v1+v2,XGBoost,all rows,51190,0.142,,44,0.971,0.9869,0.9789,0.9904
+0.8507,0.9326,0.8897,0.9523,0.792,D instant+history v1+v2,XGBoost,days_into_data >= 30,45471,0.1432,,44,0.9726,0.9885,0.9805,0.9918
+0.8571,0.9187,0.8868,0.9468,0.7879,D instant+history v1+v2,XGBoost tuned,all rows,51190,0.142,"{""n_estimators"": 300, ""max_depth"": 5, ""learning_rate"": 0.1, ""subsample"": 0.6, ""colsample_bytree"": 0.9, ""min_child_weight"": 10}",44,0.9746,0.9864,0.9805,0.991
+0.8646,0.9301,0.8962,0.9546,0.7879,D instant+history v1+v2,XGBoost tuned,days_into_data >= 30,45471,0.1432,"{""n_estimators"": 300, ""max_depth"": 5, ""learning_rate"": 0.1, ""subsample"": 0.6, ""colsample_bytree"": 0.9, ""min_child_weight"": 10}",44,0.9757,0.9882,0.9819,0.9923
+0.8397,0.897,0.8674,0.9257,0.6026,E history v1+v2 only,Random Forest,all rows,51190,0.142,,44,0.9717,0.9828,0.9772,0.9834
+0.863,0.9097,0.8857,0.9367,0.6026,E history v1+v2 only,Random Forest,days_into_data >= 30,45471,0.1432,,44,0.9759,0.9848,0.9803,0.9861
+0.8529,0.9029,0.8772,0.9348,0.8143,E history v1+v2 only,XGBoost,all rows,51190,0.142,,44,0.9742,0.9838,0.979,0.9857
+0.8589,0.9203,0.8886,0.9456,0.8143,E history v1+v2 only,XGBoost,days_into_data >= 30,45471,0.1432,,44,0.9747,0.9865,0.9806,0.9883
+0.8513,0.9058,0.8777,0.9358,0.784,E history v1+v2 only,XGBoost tuned,all rows,51190,0.142,"{""n_estimators"": 200, ""max_depth"": 5, ""learning_rate"": 0.08, ""subsample"": 1.0, ""colsample_bytree"": 0.5, ""min_child_weight"": 3}",44,0.9738,0.9842,0.979,0.9859
+0.8584,0.9243,0.8901,0.9467,0.784,E history v1+v2 only,XGBoost tuned,days_into_data >= 30,45471,0.1432,"{""n_estimators"": 200, ""max_depth"": 5, ""learning_rate"": 0.08, ""subsample"": 1.0, ""colsample_bytree"": 0.5, ""min_child_weight"": 3}",44,0.9745,0.9872,0.9808,0.9884
+0.7435,0.8066,0.7738,0.7578,3.0,Rule,distinct_days_prior_30 >= 3,all rows,51840,0.1472,,45,,,,
+0.7361,0.8405,0.7849,0.7711,3.0,Rule,distinct_days_prior_30 >= 3,days_into_data >= 30,46363,0.1465,,45,,,,
+0.8362,0.8938,0.864,0.8991,0.5736,B instant+history,Random Forest,all rows,51840,0.1472,,45,0.9698,0.9814,0.9756,0.9845
+0.8347,0.9055,0.8686,0.903,0.5736,B instant+history,Random Forest,days_into_data >= 30,46363,0.1465,,45,0.9692,0.9835,0.9763,0.9854
+0.8377,0.8949,0.8654,0.9039,0.8322,B instant+history,XGBoost,all rows,51840,0.1472,,45,0.9701,0.9816,0.9758,0.9852
+0.8366,0.9049,0.8694,0.9088,0.8322,B instant+history,XGBoost,days_into_data >= 30,46363,0.1465,,45,0.9697,0.9834,0.9765,0.9863
+0.8397,0.8982,0.868,0.9083,0.8031,B instant+history,XGBoost tuned,all rows,51840,0.1472,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",45,0.9704,0.9822,0.9763,0.9858
+0.8371,0.9078,0.871,0.9129,0.8031,B instant+history,XGBoost tuned,days_into_data >= 30,46363,0.1465,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",45,0.9697,0.9839,0.9768,0.9868
+0.8394,0.8958,0.8667,0.9118,0.5453,D instant+history v1+v2,Random Forest,all rows,51840,0.1472,,45,0.9704,0.9818,0.9761,0.9858
+0.8363,0.9075,0.8705,0.9158,0.5453,D instant+history v1+v2,Random Forest,days_into_data >= 30,46363,0.1465,,45,0.9695,0.9839,0.9767,0.9866
+0.8384,0.912,0.8736,0.9191,0.812,D instant+history v1+v2,XGBoost,all rows,51840,0.1472,,45,0.9696,0.9846,0.977,0.9872
+0.8363,0.9237,0.8778,0.9233,0.812,D instant+history v1+v2,XGBoost,days_into_data >= 30,46363,0.1465,,45,0.969,0.9867,0.9777,0.9881
+0.833,0.9198,0.8742,0.9241,0.7553,D instant+history v1+v2,XGBoost tuned,all rows,51840,0.1472,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",45,0.9681,0.9859,0.9769,0.9879
+0.8325,0.9278,0.8776,0.9281,0.7553,D instant+history v1+v2,XGBoost tuned,days_into_data >= 30,46363,0.1465,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",45,0.968,0.9874,0.9776,0.9887
+0.8445,0.8542,0.8493,0.8983,0.6388,E history v1+v2 only,Random Forest,all rows,51840,0.1472,,45,0.9728,0.9748,0.9738,0.9799
+0.8438,0.8726,0.858,0.9057,0.6388,E history v1+v2 only,Random Forest,days_into_data >= 30,46363,0.1465,,45,0.9723,0.978,0.9751,0.9823
+0.8376,0.892,0.864,0.9093,0.8118,E history v1+v2 only,XGBoost,all rows,51840,0.1472,,45,0.9701,0.9811,0.9756,0.9832
+0.8359,0.9125,0.8725,0.916,0.8118,E history v1+v2 only,XGBoost,days_into_data >= 30,46363,0.1465,,45,0.9692,0.9847,0.9769,0.9851
+0.8367,0.9013,0.8678,0.912,0.7839,E history v1+v2 only,XGBoost tuned,all rows,51840,0.1472,"{""n_estimators"": 200, ""max_depth"": 5, ""learning_rate"": 0.08, ""subsample"": 1.0, ""colsample_bytree"": 0.5, ""min_child_weight"": 3}",45,0.9696,0.9827,0.9761,0.9836
+0.8343,0.9214,0.8757,0.9188,0.7839,E history v1+v2 only,XGBoost tuned,days_into_data >= 30,46363,0.1465,"{""n_estimators"": 200, ""max_depth"": 5, ""learning_rate"": 0.08, ""subsample"": 1.0, ""colsample_bytree"": 0.5, ""min_child_weight"": 3}",45,0.9686,0.9863,0.9773,0.9855
+0.8098,0.8226,0.8162,0.8093,3.0,Rule,distinct_days_prior_30 >= 3,all rows,51120,0.1484,,46,,,,
+0.8114,0.8591,0.8346,0.8276,3.0,Rule,distinct_days_prior_30 >= 3,days_into_data >= 30,45642,0.1499,,46,,,,
+0.8593,0.9184,0.8879,0.9419,0.5314,B instant+history,Random Forest,all rows,51120,0.1484,,46,0.9738,0.9856,0.9797,0.9904
+0.866,0.9338,0.8986,0.9481,0.5314,B instant+history,Random Forest,days_into_data >= 30,45642,0.1499,,46,0.9745,0.9882,0.9813,0.9916
+0.8634,0.9195,0.8905,0.9448,0.8146,B instant+history,XGBoost,all rows,51120,0.1484,,46,0.9746,0.9858,0.9802,0.9907
+0.8718,0.9338,0.9017,0.9522,0.8146,B instant+history,XGBoost,days_into_data >= 30,45642,0.1499,,46,0.9758,0.9882,0.9819,0.9922
+0.8699,0.9217,0.8951,0.9476,0.7912,B instant+history,XGBoost tuned,all rows,51120,0.1484,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",46,0.976,0.9862,0.9811,0.9912
+0.8755,0.9375,0.9054,0.9542,0.7912,B instant+history,XGBoost tuned,days_into_data >= 30,45642,0.1499,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",46,0.9765,0.9888,0.9826,0.9926
+0.8764,0.9244,0.8997,0.9554,0.538,D instant+history v1+v2,Random Forest,all rows,51120,0.1484,,46,0.9773,0.9867,0.982,0.9923
+0.8827,0.9413,0.911,0.9615,0.538,D instant+history v1+v2,Random Forest,days_into_data >= 30,45642,0.1499,,46,0.9779,0.9895,0.9837,0.9935
+0.8579,0.9363,0.8954,0.9551,0.7865,D instant+history v1+v2,XGBoost,all rows,51120,0.1484,,46,0.973,0.9887,0.9808,0.9923
+0.8692,0.9502,0.9079,0.9619,0.7865,D instant+history v1+v2,XGBoost,days_into_data >= 30,45642,0.1499,,46,0.9748,0.9911,0.9828,0.9936
+0.8666,0.9365,0.9002,0.9579,0.7561,D instant+history v1+v2,XGBoost tuned,all rows,51120,0.1484,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",46,0.9749,0.9888,0.9818,0.9927
+0.8746,0.9489,0.9102,0.9639,0.7561,D instant+history v1+v2,XGBoost tuned,days_into_data >= 30,45642,0.1499,"{""n_estimators"": 200, ""max_depth"": 7, ""learning_rate"": 0.05, ""subsample"": 0.9, ""colsample_bytree"": 0.5, ""min_child_weight"": 10}",46,0.976,0.9908,0.9834,0.9939
+0.8625,0.9046,0.8831,0.9428,0.6067,E history v1+v2 only,Random Forest,all rows,51120,0.1484,,46,0.9749,0.9832,0.979,0.987
+0.8803,0.9233,0.9013,0.9523,0.6067,E history v1+v2 only,Random Forest,days_into_data >= 30,45642,0.1499,,46,0.9779,0.9864,0.9821,0.9896
+0.8705,0.9121,0.8908,0.9465,0.8061,E history v1+v2 only,XGBoost,all rows,51120,0.1484,,46,0.9763,0.9845,0.9804,0.9884
+0.8778,0.9345,0.9053,0.956,0.8061,E history v1+v2 only,XGBoost,days_into_data >= 30,45642,0.1499,,46,0.9771,0.9883,0.9827,0.9907
+0.8728,0.9067,0.8894,0.9467,0.8179,E history v1+v2 only,XGBoost tuned,all rows,51120,0.1484,"{""n_estimators"": 200, ""max_depth"": 3, ""learning_rate"": 0.15, ""subsample"": 0.8, ""colsample_bytree"": 1.0, ""min_child_weight"": 1}",46,0.977,0.9836,0.9803,0.9885
+0.8796,0.9294,0.9038,0.9565,0.8179,E history v1+v2 only,XGBoost tuned,days_into_data >= 30,45642,0.1499,"{""n_estimators"": 200, ""max_depth"": 3, ""learning_rate"": 0.15, ""subsample"": 0.8, ""colsample_bytree"": 1.0, ""min_child_weight"": 1}",46,0.9776,0.9874,0.9825,0.9908

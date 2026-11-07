@@ -1,0 +1,543 @@
+"""Streamlit demo. Run from the project root:  streamlit run app/app.py"""
+import json
+import sys
+from pathlib import Path
+
+import joblib
+import numpy as np
+import pandas as pd
+import pydeck as pdk
+import streamlit as st
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src import geo, live  # noqa: E402
+from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
+from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
+from src.features import add_features  # noqa: E402
+from src.history import add_history, add_history_v2  # noqa: E402
+from src.label import add_cell  # noqa: E402
+
+st.set_page_config(page_title="Fire Hotspot Classifier", layout="wide")
+
+FIRE_COLOR = [214, 48, 39, 190]
+STATIC_COLOR = [110, 110, 110, 190]
+TAG = "headline"
+MAX_POINTS = 30_000
+MIN_HISTORY_DAYS = 30
+INSTANT = "Instant (single reading)"
+HISTORY = "With history (past detections)"
+OPERATING_POINTS = ["F1 optimal", "precision >= 0.90", "precision >= 0.95"]
+
+
+@st.cache_data(max_entries=1)           # one tier's scored table at a time
+def load_scored(name):
+    p = PROC_DIR / name
+    if not p.exists():
+        return None
+    return live.add_geo(pd.read_parquet(p), PROC_DIR / "geo_cells.parquet")    # geography once per cell
+
+
+@st.cache_resource(max_entries=1)       # one tier's model at a time
+def load_model(name):
+    """Memory mapped load: the models are saved uncompressed, so the big arrays are not copied."""
+    p = MODEL_DIR / name
+    return joblib.load(p, mmap_mode="r") if p.exists() else None
+
+
+def read_json(name):
+    p = REPORT_DIR / name
+    return json.loads(p.read_text()) if p.exists() else None
+
+
+def read_csv(name, **kw):
+    p = REPORT_DIR / name
+    return pd.read_csv(p, **kw) if p.exists() else None
+
+
+BASEMAP = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
+ALL_CONT, ALL_COUNTRIES, ALL_PROVINCES, ALL_CITIES = "World", "All countries", "All provinces", "All cities"
+CITY_OPTIONS = 200
+OUTLINE = [30, 30, 30, 255]
+PROVINCE_LINE = [150, 150, 150, 200]
+HIGHLIGHT_FILL = [255, 190, 0, 50]
+HIGHLIGHT_LINE = [210, 120, 0, 255]
+
+
+def map_view(df, city=False, width=1000, height=500, pad=1.3):
+    """View that fits the points with padding, or city level when a city is selected."""
+    lon, lat = df["longitude"].to_numpy(), df["latitude"].to_numpy()
+    w, e, s, n = float(lon.min()), float(lon.max()), float(lat.min()), float(lat.max())
+    mid_lon, mid_lat = (w + e) / 2, (s + n) / 2
+    if city or max(e - w, n - s) < 0.02:
+        return pdk.ViewState(latitude=float(np.median(lat)), longitude=float(np.median(lon)), zoom=9)
+    # Web Mercator with 512 px tiles: a span of `deg` degrees of longitude fits at this zoom
+    span_x = (e - w) * pad
+    span_y = (n - s) * pad / max(np.cos(np.radians(mid_lat)), 0.2)
+    zoom = min(np.log2(360 * width / (512 * span_x)) if span_x else 12,
+               np.log2(360 * height / (512 * span_y)) if span_y else 12)
+    return pdk.ViewState(latitude=mid_lat, longitude=mid_lon, zoom=float(np.clip(zoom, 1, 12)))
+
+
+def draw_map(df, color_col, max_points, key, country=None, province=False, city=False,
+             days_col=None, days_label="Days seen at this spot", selectable=False):
+    """The one map used by every tab. Returns the cell id of a clicked point (selectable) or None.
+
+    color_col is 1 for static (grey) and 0 for fire (red). Only the columns the map needs are
+    sent to the browser. `country` is an ISO code: its outline and provinces are drawn, and
+    `province` highlights the province that holds the points.
+    """
+    view_state = map_view(df, city)
+    d = df
+    if len(d) > max_points:
+        st.caption(f"Drawing a random sample of {max_points:,} of {len(d):,} points. "
+                   "Counters use all points.")
+        d = d.sample(max_points, random_state=0)
+    out = pd.DataFrame({
+        "longitude": d["longitude"].round(4), "latitude": d["latitude"].round(4),
+        "radius": (250 + 60 * np.sqrt(d["frp"].clip(lower=0))).round().astype(int),
+        "when": d["timestamp"].dt.strftime("%Y-%m-%d %H:%M"),
+        "p": d["p_static"].round(3), "frp": d["frp"].round(1), "ti4": d["bright_ti4"].round(1)})
+    if days_col:
+        out["days"] = d[days_col].astype(int)
+    if "city" in d:
+        out["city"] = d["city"]
+    if selectable:
+        out["cell_id"] = d["cell_id"]
+    static = (d[color_col] == 1).to_numpy()
+
+    layers = []
+    if country:
+        c = geo.country_feature(country)
+        provs = geo.province_features(country)
+        if provs:
+            layers.append(pdk.Layer("GeoJsonLayer", geo.collection(provs), id="provinces", stroked=True,
+                                    filled=False, get_line_color=PROVINCE_LINE, line_width_min_pixels=1))
+        if province:
+            hit = geo.province_at(country, df["longitude"].to_numpy(), df["latitude"].to_numpy())
+            if hit:
+                layers.append(pdk.Layer("GeoJsonLayer", geo.collection([hit]), id="province", stroked=True,
+                                        filled=True, get_fill_color=HIGHLIGHT_FILL,
+                                        get_line_color=HIGHLIGHT_LINE, line_width_min_pixels=3))
+        if c:
+            layers.append(pdk.Layer("GeoJsonLayer", geo.collection([c]), id="country", stroked=True,
+                                    filled=False, get_line_color=OUTLINE, line_width_min_pixels=2))
+    for name, mask, color in (("static", static, STATIC_COLOR), ("fire", ~static, FIRE_COLOR)):
+        if mask.any():
+            layers.append(pdk.Layer("ScatterplotLayer", out[mask], id=name, get_position="[longitude, latitude]",
+                                    get_fill_color=color, get_radius="radius", radius_min_pixels=2,
+                                    radius_max_pixels=14, pickable=True, auto_highlight=True))
+    tip = "<b>p(static)</b> {p}<br/>FRP {frp}<br/>Brightness {ti4}<br/>"
+    if days_col:
+        tip += days_label + ": {days}<br/>"
+    if "city" in out:
+        tip += "Near {city}<br/>"
+    tip += "{when} UTC"
+    deck = pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"html": tip},
+                    map_provider="carto", map_style=BASEMAP)
+    sig = f"{view_state.longitude:.3f}_{view_state.latitude:.3f}_{view_state.zoom:.2f}_{country}_{province}"
+    if selectable:
+        try:
+            ev = st.pydeck_chart(deck, on_select="rerun", selection_mode="single-object",
+                                 key=f"{key}_{sig}", width="stretch")
+            for objs in ev.selection.objects.values():
+                if objs:
+                    return objs[0]["cell_id"]
+            return None
+        except Exception:
+            pass
+    st.pydeck_chart(deck, key=f"{key}_{sig}", width="stretch")
+    return None
+
+
+FILTER_DEFAULTS = {"continent": ALL_CONT, "country": ALL_COUNTRIES, "province": ALL_PROVINCES,
+                   "city": ALL_CITIES}
+
+
+def _reset_below(keys):
+    """on_change callback: a changed filter sends the filters below it back to their All default."""
+    for k in keys:
+        st.session_state[k] = FILTER_DEFAULTS[k.rsplit("_", 1)[1]]
+
+
+def _select(col, label, options, key, below=()):
+    if st.session_state.get(key, options[0]) not in options:
+        st.session_state.pop(key, None)             # stale value, for example after a date change
+    return col.selectbox(label, options, key=key, on_change=_reset_below, args=(list(below),))
+
+
+def geo_filters(df, prefix):
+    """Continent, country, province and nearest city filters, each narrowing the next.
+
+    Changing a filter resets the ones below it. Returns the filtered frame, the country code
+    (or None), whether a province is picked and whether a city is picked.
+    """
+    k = {n: f"{prefix}_{n}" for n in ("continent", "country", "province", "city")}
+    c = st.columns(4)
+    cont = _select(c[0], "Continent", [ALL_CONT] + sorted(df["continent"].dropna().unique()),
+                   k["continent"], (k["country"], k["province"], k["city"]))
+    if cont != ALL_CONT:
+        df = df[df["continent"] == cont]
+    by_name = {geo.country_name(x): x for x in df["cc"].dropna().unique()}
+    name = _select(c[1], "Country", [ALL_COUNTRIES] + sorted(by_name), k["country"],
+                   (k["province"], k["city"]))
+    cc = None
+    if name != ALL_COUNTRIES:
+        cc = by_name[name]
+        df = df[df["cc"] == cc]
+    provinces = sorted(p for p in df["admin1"].dropna().unique() if p)
+    prov = _select(c[2], "Province or state", [ALL_PROVINCES] + provinces, k["province"], (k["city"],))
+    if prov != ALL_PROVINCES:
+        df = df[df["admin1"] == prov]
+    top = df["city"].value_counts()
+    top = top[top > 0].head(CITY_OPTIONS)
+    labels = {f"{n} ({m:,})": n for n, m in top.items()}
+    pick = _select(c[3], "Nearest city", [ALL_CITIES] + list(labels), k["city"])
+    if pick != ALL_CITIES:
+        df = df[df["city"] == labels[pick]]
+    return df, cc, prov != ALL_PROVINCES, pick != ALL_CITIES
+
+
+def score_upload(up, tier, bundle, thr):
+    """Score an uploaded FIRMS CSV (archive or near real time format)."""
+    raw = normalize_columns(pd.read_csv(up))
+    missing = [c for c in REQUIRED if c not in raw.columns]
+    if missing:
+        raise ValueError(f"missing columns: {missing}")
+    new = add_cell(add_features(clean(raw)))
+    span = int((new["acq_date"].max() - new["acq_date"].min()).days) + 1
+    if tier == HISTORY:
+        new["source_file"] = getattr(up, "name", "upload")
+        new = add_history_v2(add_history(new))          # same functions the training used
+    new["p_static"] = bundle["model"].predict_proba(new[bundle["features"]])[:, 1]
+    new["pred_static"] = (new["p_static"] >= thr).astype(int)
+    new["cell_days"] = new.groupby("cell_id")["acq_date"].transform("nunique")
+    return new, span
+
+
+# ---------------------------------------------------------------- live map
+LIVE_MAX_POINTS = 50_000
+
+
+@st.cache_data(show_spinner="Computing features and scores (the first run for a region is slower)")
+def live_scored(region, stamp, _inst_bundle=None):
+    """Features, history, both model scores and geography for the stored region. Cached by file stamp.
+
+    The instant model is the large one. The sidebar's copy is reused when it is loaded,
+    otherwise it is loaded here and released as soon as the scores are computed.
+    """
+    raw, fetched = live.load_snapshot(region)
+    hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")      # small
+    inst = _inst_bundle or joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
+    df = live.build_scored(region, hist, inst, raw)
+    meta = {"inst_threshold": float(inst["threshold"]), "inst_features": list(inst["features"]),
+            "thresholds": hist["thresholds"], "hist_features": list(hist["features"]),
+            "default_point": hist.get("default_operating_point")}
+    del inst
+    return df, fetched, meta
+
+
+def live_tab(tier, bundle):
+    """tier and bundle are the sidebar's: the instant model is reused when it is already loaded."""
+    if not (MODEL_DIR / "best_model_history.joblib").exists() or \
+            not (MODEL_DIR / "best_model_headline.joblib").exists():
+        st.warning("The live map needs both trained models. Run `python -m src.train --tag headline` "
+                   "and `python -m src.final_history` first.")
+        return
+    hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")   # a few hundred KB
+    key = live.load_key()
+    st.info("Near real time data, about 3 hours behind the satellite. There is no ground truth on live "
+            "data: see the Results tab for measured performance. The models were trained on three "
+            "regions. History features need up to 60 days of data, so the first fetch is slower.")
+
+    c1, c2, c3, c4 = st.columns([3, 3, 3, 2])
+    region = c1.selectbox("Region loaded", list(live.REGIONS), key="live_region")
+    live_tier = c2.radio("Live model", [HISTORY, INSTANT], key="live_tier")
+    if live_tier == HISTORY:
+        names = [n for n in OPERATING_POINTS if hist["thresholds"].get(n) is not None]
+        point = c3.selectbox("Live operating point", names,
+                             index=names.index(hist.get("default_operating_point", names[0])), key="live_point")
+        thr, col = float(hist["thresholds"][point]), "p_static_history"
+    else:
+        thr, col = None, "p_static_instant"          # the saved threshold is read with the scores below
+    if key is None:
+        c4.caption("Offline: no map key")
+        offline = True
+        st.warning("No FIRMS map key found. Set FIRMS_MAP_KEY in a .env file in the project root or in "
+                   "the environment to fetch live data. Showing the saved snapshot if there is one.")
+    else:
+        offline = c4.checkbox("Offline (saved snapshot)", value=False, key="live_offline")
+    if st.button("Refresh data", disabled=offline, key="live_refresh"):
+        bar = st.progress(0.0, text="Fetching from FIRMS")
+        try:
+            r = live.refresh(region, key, progress=lambda f: bar.progress(f, text="Fetching from FIRMS"))
+            st.success(f"{r['requests']} requests, {r['new_rows']:,} detections stored.")
+        except live.FirmsError as e:
+            st.error(f"Refresh failed: {e}")
+        bar.empty()
+
+    snap = live.snapshot_path(region)
+    if not snap.exists():
+        st.info("No data for this region yet. Add a map key and press Refresh data.")
+        return
+    try:
+        df, fetched, meta = live_scored(region, snap.stat().st_mtime_ns,
+                                        bundle if tier == INSTANT else None)
+    except Exception as e:
+        st.error(f"Could not process the stored data: {e}")
+        return
+    if thr is None:
+        thr = meta["inst_threshold"]
+        st.caption(f"Instant model, saved threshold {thr:.3f}")
+    demo = live.snapshot_is_demo(region)
+    if demo:
+        st.error("Demo snapshot: historical 2025 data shifted to look recent, for testing only. "
+                 "This is not current data.")
+    if region not in live.TRAINED:
+        st.warning("This region was not part of the training data. Results here are unvalidated.")
+
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    latest = df["timestamp"].max()
+    age_h = (now - latest).total_seconds() / 3600
+    days = st.slider("Days shown", 1, live.KEEP_DAYS, 7, key="live_days",
+                     help="Features always use the full stored history.")
+    view = df[df["acq_date"] > df["acq_date"].max() - pd.Timedelta(days=days)]
+
+    view, country, province, city = geo_filters(view, "live")
+    view = view.assign(p_static=view[col], pred_static=(view[col] >= thr).astype(int))
+
+    m = st.columns(5)
+    m[0].metric("Detections", f"{len(view):,}")
+    m[1].metric("Predicted fire", f"{int((view['pred_static'] == 0).sum()):,}")
+    m[2].metric("Predicted static", f"{int(view['pred_static'].sum()):,}")
+    m[3].metric("Latest detection (UTC)", f"{latest:%Y-%m-%d %H:%M}")
+    m[4].metric("Data age", f"{age_h:.1f} h")
+    if fetched is not None:
+        st.caption(f"Snapshot fetched {fetched:%Y-%m-%d %H:%M} UTC. Store covers "
+                   f"{df['acq_date'].min():%Y-%m-%d} to {df['acq_date'].max():%Y-%m-%d}.")
+    if age_h > 24 and not demo:
+        st.warning(f"The newest detection in this region is {age_h:.0f} hours old. Either the snapshot is "
+                   "old or the source has stopped delivering new data.")
+    if view.empty:
+        st.info("No detections for this selection.")
+        return
+
+    clicked = draw_map(view, "pred_static", LIVE_MAX_POINTS, "live_map", country, province, city,
+                       days_col="days_seen_30", days_label="Days seen in last 30", selectable=True)
+    st.caption("Red: predicted fire. Grey: predicted static heat source. Size follows fire radiative power.")
+
+    st.subheader("Spot inspector")
+    top = (view.groupby("cell_id").agg(days=("days_seen_30", "max"), city=("city", "first"))
+           .sort_values("days", ascending=False).head(50))
+    cid = st.selectbox("Most repeated spots in view (click a point on the map to pick one)", top.index,
+                       format_func=lambda c: f"{c}  ({top.loc[c, 'days']} days in 30, near {top.loc[c, 'city']})",
+                       key="live_spot")
+    if clicked:
+        cid = clicked
+        st.caption(f"Selected on the map: {cid}")
+    spot = df[df["cell_id"] == cid].sort_values("timestamp")
+    if spot.empty:
+        return
+    last = spot.iloc[-1]
+    p = float(last["p_static_history" if live_tier == HISTORY else "p_static_instant"])
+    st.write(f"{last['city']}, {last['admin1']}, {last['cc']}. Latest detection p(static) {p:.3f}, "
+             f"predicted {'static' if p >= thr else 'fire'}.")
+    idx = pd.date_range(df["acq_date"].max() - pd.Timedelta(days=live.KEEP_DAYS - 1), df["acq_date"].max())
+    st.bar_chart(spot.groupby("acq_date").size().reindex(idx, fill_value=0))
+    st.caption("Detections per day over the stored 60 days.")
+    feats = meta["hist_features"] if live_tier == HISTORY else meta["inst_features"]
+    st.dataframe(last[feats].astype(float).round(3).rename("latest detection").to_frame(), width="stretch")
+
+
+# ---------------------------------------------------------------- sidebar
+st.title("Fire Hotspot Classifier")
+st.caption("NASA FIRMS VIIRS detections, classified as likely fire or likely static heat source.")
+
+tier = st.sidebar.radio("Model tier", [INSTANT, HISTORY])
+if tier == INSTANT:
+    scored = load_scored(f"scored_{TAG}.parquet")
+    bundle = load_model(f"best_model_{TAG}.joblib")
+    prob_col = "p_static"
+else:
+    scored = load_scored("scored_history.parquet")
+    bundle = load_model("best_model_history.joblib")
+    prob_col = "p_static_history"
+
+if scored is None or bundle is None:
+    st.warning("No trained model found for this tier. Run `python -m src.train --tag headline` "
+               "(instant) or `python -m src.final_history` (with history) first.")
+    st.stop()
+
+if tier == INSTANT:
+    saved_thr = float(bundle["threshold"])
+    thr = st.sidebar.slider("Decision threshold (p static)", 0.05, 0.95, saved_thr, 0.01,
+                            help=f"Saved threshold: {saved_thr:.3f}")
+else:
+    names = [n for n in OPERATING_POINTS if bundle["thresholds"].get(n) is not None]
+    default = bundle.get("default_operating_point", names[0])
+    point = st.sidebar.selectbox("Operating point", names, index=names.index(default))
+    thr = float(bundle["thresholds"][point])
+    held = (read_json("history_final_metrics.json") or {}).get("operating_points", {}).get(point)
+    st.sidebar.caption(f"Threshold {thr:.3f}.")
+    if held and held.get("precision") is not None:
+        st.sidebar.caption(f"Held out 20 percent: precision {held['precision']:.3f}, "
+                           f"recall {held['recall']:.3f}.")
+    st.info("The history tier needs past detections of the same place and works best with at least "
+            f"{MIN_HISTORY_DAYS} days of data. It predicts NASA's repeat based static flag.")
+
+scored = scored.assign(p_static=scored[prob_col], pred_static=(scored[prob_col] >= thr).astype(int))
+
+tab_map, tab_spot, tab_live, tab_metrics, tab_results, tab_livemap = st.tabs(
+    ["Map", "Why a spot is static", "Classify a new file", "Model metrics", "Results", "Live map"])
+
+with tab_map:
+    c1, c2, c3 = st.columns([2, 2, 3])
+    view_mode = c1.radio("View", ["Raw detections", "Model prediction", "Ground truth"], horizontal=True)
+    only_test = c2.checkbox("Only held out test detections", value=False)
+    dmin, dmax = scored["acq_date"].min().date(), scored["acq_date"].max().date()
+    rng = c3.slider("Date range", dmin, dmax, (dmin, dmax)) if dmin != dmax else (dmin, dmax)
+
+    d = scored[(scored["acq_date"].dt.date >= rng[0]) & (scored["acq_date"].dt.date <= rng[1])]
+    if only_test:
+        d = d[d["in_test"]]
+
+    d, country, province, city = geo_filters(d, "map")
+    kw = dict(days_col="cell_days", days_label="Days seen at this spot")
+    if d.empty:
+        st.info("No detections for this selection.")
+    elif view_mode == "Raw detections":
+        d = d.assign(raw=0)
+        draw_map(d, "raw", MAX_POINTS, "map", country, province, city, **kw)
+        st.caption("Every detection looks the same to the satellite.")
+    elif view_mode == "Model prediction":
+        draw_map(d, "pred_static", MAX_POINTS, "map", country, province, city, **kw)
+        st.caption("Red: predicted fire. Grey: predicted static heat source.")
+    else:
+        draw_map(d, "is_static", MAX_POINTS, "map", country, province, city, **kw)
+        st.caption("Red: fire. Grey: static source according to the NASA type label (ground truth).")
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Detections shown", f"{len(d):,}")
+    m2.metric("Predicted static", f"{int(d['pred_static'].sum()):,}")
+    m3.metric("Predicted fire", f"{int((1 - d['pred_static']).sum()):,}")
+
+with tab_spot:
+    st.write("Pick a location that was flagged repeatedly and see it appear day after day.")
+    cells = (scored.groupby("cell_id")["acq_date"].nunique().sort_values(ascending=False).head(50))
+    if len(cells):
+        cid = st.selectbox("Most repeated locations (cell id, days seen)",
+                           cells.index, format_func=lambda c: f"{c}  ({cells[c]} days)")
+        sub = scored[scored["cell_id"] == cid].sort_values("timestamp")
+        st.dataframe(sub[["timestamp", "bright_ti4", "frp", "p_static", "pred_static"]]
+                     .reset_index(drop=True), width="stretch")
+        per_day = sub.groupby(sub["acq_date"].dt.date).size()
+        st.bar_chart(per_day)
+
+with tab_live:
+    if tier == INSTANT:
+        st.write("Upload a FIRMS VIIRS CSV the model has never seen. Each detection is scored "
+                 "from its own readings only.")
+    else:
+        st.write("Upload a FIRMS VIIRS CSV. History features are computed inside the uploaded file "
+                 "from detections on earlier days, so the file must cover enough days.")
+    up = st.file_uploader("FIRMS CSV", type=["csv"])
+    if up is not None:
+        try:
+            new, span = score_upload(up, tier, bundle, thr)
+            if tier == HISTORY and span < MIN_HISTORY_DAYS:
+                st.warning(f"This file spans {span} days, fewer than {MIN_HISTORY_DAYS}. History "
+                           "features will be weak and results unreliable.")
+            draw_map(new, "pred_static", MAX_POINTS, "upload", days_col="cell_days")
+            st.write(f"{len(new):,} detections, {int(new['pred_static'].sum()):,} predicted static.")
+        except Exception as e:  # show a readable message in the demo
+            st.error(f"Could not process this file: {e}")
+
+with tab_metrics:
+    mpath = REPORT_DIR / f"metrics_{TAG}.json"
+    if mpath.exists():
+        m = json.loads(mpath.read_text())
+        st.write(f"Best instant model: **{m['best_model']}**. Window {m['date_min']} to {m['date_max']}, "
+                 f"{m['rows']:,} detections, {m['static_share']:.1%} static.")
+        st.dataframe(pd.read_csv(REPORT_DIR / f"model_comparison_{TAG}.csv", index_col=0))
+        a, b = st.columns(2)
+        if (REPORT_DIR / f"confusion_matrix_{TAG}.png").exists():
+            a.image(str(REPORT_DIR / f"confusion_matrix_{TAG}.png"))
+        if (REPORT_DIR / f"feature_importance_{TAG}.png").exists():
+            b.image(str(REPORT_DIR / f"feature_importance_{TAG}.png"))
+        st.caption("Scores are on locations the model never saw during training. The label is NASA's "
+                   "own type flag. The confusion matrix uses the saved threshold.")
+
+with tab_results:
+    st.subheader("Rule, instant and history results")
+    shown = False
+
+    ev = read_csv("history2_eval_a.csv")
+    if ev is not None:
+        shown = True
+        subset = st.selectbox("Test rows", list(ev["subset"].unique()))
+        d = ev[(ev["subset"] == subset)
+               & (ev["setup"].str.startswith(("Rule", "B ", "D ")))
+               & (ev["model"].isin(["Random Forest", "XGBoost", "XGBoost tuned"])
+                  | (ev["setup"] == "Rule"))]
+        d = d.assign(model=d["model"].where(d["setup"] != "Rule", "distinct_days_prior_30 >= k"))
+        cols = ["pr_auc_static", "precision_static", "recall_static", "f1_static"]
+        g = d.groupby(["setup", "model"], sort=False)[cols]
+        table = g.mean().round(3).astype(str) + " (" + g.std().round(3).astype(str) + ")"
+        table.index = [f"{setup}: {model}" for setup, model in table.index]
+        st.write("Five grouped splits, mean (std). Rule, B (instant + history v1) and D "
+                 "(instant + history v1 + v2).")
+        st.dataframe(table.rename(columns=dict(zip(cols, ["PR-AUC", "Precision", "Recall", "F1"]))))
+        rule_f1 = d[d["setup"] == "Rule"]["f1_static"].mean()
+        d_f1 = d[(d["setup"].str.startswith("D ")) & (d["model"] == "XGBoost")]["f1_static"].mean()
+        k1, k2 = st.columns(2)
+        k1.metric("Rule F1 (static)", f"{rule_f1:.3f}")
+        k2.metric("D XGBoost F1 (static)", f"{d_f1:.3f}")
+
+    ops = read_csv("history2_operating_points.csv")
+    if ops is not None:
+        shown = True
+        st.write(f"Operating points, {ops['setup'].iloc[0]}, {ops['model'].iloc[0]}. Thresholds from "
+                 "training predictions only, precision and recall on the test part.")
+        five = ops[ops["split"].str.startswith("seed")]
+        st.dataframe(five.groupby("operating point", sort=False)[["threshold", "precision", "recall"]]
+                     .mean().round(3).rename(index=lambda s: f"{s} (mean of 5 splits)"))
+        st.dataframe(ops[ops["split"] == "temporal"].drop(columns=["setup", "model"])
+                     .reset_index(drop=True))
+    if (REPORT_DIR / "pr_curve_history2.png").exists():
+        st.image(str(REPORT_DIR / "pr_curve_history2.png"), width=480)
+
+    fin = read_json("history_final_metrics.json")
+    if fin is not None:
+        shown = True
+        st.write(f"Saved history model ({fin['model']}, setup {fin['setup']}), held out 20 percent "
+                 f"of locations, split seed {fin['split_seed']}.")
+        st.dataframe(pd.DataFrame(fin["operating_points"]).T)
+
+    reg = read_csv("region_eval_type_region.csv")
+    if reg is not None:
+        shown = True
+        st.write("Instant tier, leave one region out (train on two regions, test on the third).")
+        st.dataframe(reg.round(3))
+
+    inst = read_json(f"metrics_{TAG}.json")
+    if inst is not None:
+        shown = True
+        st.write("Instant tier, held out test split.")
+        res = pd.DataFrame(inst["results"]).T[["precision_static", "recall_static", "f1_static",
+                                              "pr_auc_static"]].round(3)
+        st.dataframe(res)
+
+    if not shown:
+        st.info("No report files found in reports/.")
+
+    st.markdown(
+        "**How to read these results.** The labels come from NASA's own repeat based static flag, "
+        "not from independent ground truth. The history tier uses past detections of the same "
+        "place, which is close to restating that definition, so its scores show that past "
+        "detections predict NASA's flag, not that the flag is correct. A one line rule on the "
+        "count of recent days is shown next to the models: much of the history gain is already "
+        "in that rule. The instant tier uses a single reading and is much weaker.")
+
+with tab_livemap:
+    live_tab(tier, bundle)

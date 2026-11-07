@@ -1,0 +1,8 @@
+continent,detections,predicted_static_share
+Africa,192732,0.1115
+Asia,55073,0.3047
+Europe,5693,0.3854
+North America,8604,0.4177
+Oceania,18473,0.2209
+Other,267,0.1985
+South America,43981,0.2857

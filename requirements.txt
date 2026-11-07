@@ -1,0 +1,16 @@
+pandas
+numpy
+scikit-learn
+xgboost
+matplotlib
+joblib
+pyarrow
+streamlit
+pydeck
+
+# CPU build: pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+python-dotenv
+reverse_geocoder
+requests
+shapely

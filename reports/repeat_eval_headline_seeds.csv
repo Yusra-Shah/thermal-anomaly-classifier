@@ -1,0 +1,5 @@
+,mean,mean,mean,mean,std,std,std,std
+,pr_auc_static,precision_static,recall_static,f1_static,pr_auc_static,precision_static,recall_static,f1_static
+model,,,,,,,,
+Random Forest,0.5242,0.4431,0.8262,0.5764,0.0263,0.0267,0.0144,0.0235
+XGBoost,0.5291,0.4417,0.8388,0.5782,0.0355,0.029,0.0212,0.0252

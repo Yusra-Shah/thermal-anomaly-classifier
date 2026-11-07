@@ -1,0 +1,3 @@
+repeat_cell,detections,predicted_static_share
+other cells,307793,0.1654
+cell seen >= 4 days,17030,0.5784

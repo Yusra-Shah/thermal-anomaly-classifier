@@ -1,0 +1,5 @@
+,threshold,precision_static,recall_static,f1_static,recall_fire,precision_fire,f1_fire,pr_auc_static,roc_auc,cv_pr_auc_static
+Majority baseline,0.5,0.0,0.0,0.0,1.0,0.8474,0.9174,0.1526,0.5,
+Logistic Regression,0.713,0.4362,0.85,0.5765,0.8022,0.9674,0.8771,0.4169,0.85,0.387
+Random Forest,0.3416,0.4565,0.8098,0.5839,0.8264,0.9602,0.8883,0.5154,0.8756,0.5211
+XGBoost,0.6991,0.4617,0.8056,0.587,0.831,0.9596,0.8906,0.5152,0.8752,0.5246

@@ -1,0 +1,25 @@
+{
+  "setup": "D instant+history v1+v2",
+  "model": "XGBoost, default settings (100 trees)",
+  "split_seed": 42,
+  "train_rows": 205487,
+  "test_rows": 52354,
+  "test_static_share": 0.1526,
+  "operating_points": {
+    "F1 optimal": {
+      "threshold": 0.8148,
+      "precision": 0.8537,
+      "recall": 0.9132
+    },
+    "precision >= 0.90": {
+      "threshold": 0.914,
+      "precision": 0.8944,
+      "recall": 0.84
+    },
+    "precision >= 0.95": {
+      "threshold": 0.9731,
+      "precision": 0.9303,
+      "recall": 0.5965
+    }
+  }
+}
