@@ -1,7 +1,8 @@
-"""Tests for src/live.py and the Live map tab. No network: the API is faked.
+"""Tests for src/live.py and the Earth tab. No network: the API is faked.
 
 Run from the project root:  python -m tests.test_live
 """
+import gc
 import tempfile
 from pathlib import Path
 
@@ -188,6 +189,13 @@ def test_geography(tmp):
     print("geography test passed")
 
 
+INSTANT_TIER = "Instant (single reading)"
+HISTORY_TIER = "With history (past detections)"
+LIVE_SRC = "Live snapshot (demo)"
+DEMO_NOTICE = ("Demo snapshot: historical 2025 data shifted to look recent, for testing only. "
+               "This is not current data.")
+
+
 def run_app(tmp, key, setup=None):
     from streamlit.testing.v1 import AppTest
     import streamlit as st
@@ -197,40 +205,91 @@ def run_app(tmp, key, setup=None):
     live.load_key = lambda: key
     at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app" / "app.py"), default_timeout=900)
     at.run()
+    assert not at.exception, [e.value for e in at.exception]
     if setup:
         setup(at)
     return at
 
 
+def to_live(a):
+    a.radio(key="earth_source").set_value(LIVE_SRC).run()
+
+
+def metric(a, label):
+    return int([m for m in a.metric if m.label == label][0].value.replace(",", ""))
+
+
+def page_html(a):
+    els = a.get("iframe")
+    assert els, "no embedded Earth page"
+    return els[-1].proto.srcdoc
+
+
+def build_demo(tmp):
+    from src import live_demo
+    from src.config import RAW_DIR
+    from src.region_eval import REGIONS as FILES
+    live.LIVE_DIR = Path(tmp)
+    for fname, region in FILES.items():
+        live_demo.build(region, RAW_DIR / fname)
+    return list(FILES.values())
+
+
+def test_earth_select():
+    """The Show helpers on a small frame: error counts add up and categories match the legend."""
+    from src import earth
+    df = pd.DataFrame({"pred_static": [1, 1, 0, 0, 1, 0], "is_static": [1, 0, 0, 1, 0, 0]})
+    fs, ff = earth.error_counts(df)
+    assert (fs, ff) == (2, 1)
+    rows, kinds = earth.select(df, "Errors only")
+    assert len(rows) == fs + ff and sorted(kinds.tolist()) == [2, 2, 3]
+    assert kinds.tolist() == [2, 3, 2]
+    assert earth.select(df, "Ground truth")[1].tolist() == df["is_static"].tolist()
+    assert earth.select(df, "Model prediction")[1].tolist() == df["pred_static"].tolist()
+    assert set(earth.select(df, "Raw detections")[1].tolist()) == {0}
+    print("show helper test passed")
+
+
 def test_app_live(tmp):
-    from src.history import add_history  # noqa: F401  (import check only)
+    """Live source of the Earth tab: notices, key handling, offline, model choice, regions."""
     live.LIVE_DIR = Path(tmp)
     live.write_snapshot(REGION, fake_detections(60))
 
     # Offline with a snapshot and no key
-    at = run_app(tmp, None)
+    at = None                     # free the previous app run first (memory)
+    gc.collect()
+    at = run_app(tmp, None, to_live)
     assert not at.exception, at.exception
     texts = [w.value for w in at.warning]
     assert any("No FIRMS map key" in t for t in texts), texts
+    assert any("2 November 2026" in t for t in texts), texts
+    assert any("Near real time" in i.value and "no ground truth" in i.value for i in at.info)
     assert KEY not in str(at)
     labels = [m.label for m in at.metric]
-    for want in ("Detections", "Predicted fire", "Predicted static", "Latest detection (UTC)", "Data age"):
+    for want in ("Detections in Earth", "Predicted fire", "Predicted static", "Circles drawn"):
         assert want in labels, labels
-    refresh = [b for b in at.button if b.label == "Refresh data"][0]
-    assert refresh.proto.disabled
+    assert any("data age" in c.value for c in at.caption)
+    assert at.button(key="earth_refresh").proto.disabled
 
     # Key present and offline ticked
     def tick(a):
-        [c for c in a.checkbox if c.label == "Offline (saved snapshot)"][0].check().run()
+        to_live(a)
+        a.checkbox(key="earth_offline").check().run()
+    at = None                     # free the previous app run first (memory)
+    gc.collect()
     at = run_app(tmp, KEY, tick)
     assert not at.exception, at.exception
-    assert [b for b in at.button if b.label == "Refresh data"][0].proto.disabled
+    assert at.button(key="earth_refresh").proto.disabled
+    assert KEY not in str(at)
 
     # Instant model and a country filter
     def instant(a):
-        [r for r in a.radio if r.label == "Live model"][0].set_value("Instant (single reading)").run()
-        sb = a.selectbox(key="live_country")
+        to_live(a)
+        a.radio(key="earth_live_tier").set_value(INSTANT_TIER).run()
+        sb = a.selectbox(key="earth_l_country")
         sb.set_value(sb.options[1]).run()
+    at = None                     # free the previous app run first (memory)
+    gc.collect()
     at = run_app(tmp, None, instant)
     assert not at.exception, at.exception
 
@@ -238,57 +297,63 @@ def test_app_live(tmp):
     live.write_snapshot("Europe (not in training)", fake_detections(60))
 
     def europe(a):
-        [s for s in a.selectbox if s.label == "Region loaded"][0].set_value("Europe (not in training)").run()
+        to_live(a)
+        a.selectbox(key="earth_region").set_value("Europe (not in training)").run()
+    at = None                     # free the previous app run first (memory)
+    gc.collect()
     at = run_app(tmp, None, europe)
     assert not at.exception, at.exception
     assert any("unvalidated" in w.value for w in at.warning)
 
     # Region without a snapshot
     def other(a):
-        [s for s in a.selectbox if s.label == "Region loaded"][0].set_value("Southeast Asia").run()
+        to_live(a)
+        a.selectbox(key="earth_region").set_value("Southeast Asia").run()
+    at = None                     # free the previous app run first (memory)
+    gc.collect()
     at = run_app(tmp, None, other)
     assert not at.exception and any("No data for this region" in i.value for i in at.info)
-    print("app live tab test passed")
+    print("earth live source test passed")
 
 
 def test_app_demo(tmp):
-    """Demo snapshots built from the archive files, loaded offline in the app."""
+    """Demo snapshots built from the archive files, loaded offline in the Earth tab."""
     import time
 
-    from src import live_demo
     from src.config import RAW_DIR
+    from src import live_demo
     from src.region_eval import REGIONS as FILES
-    live.LIVE_DIR = Path(tmp)
+    regions = build_demo(tmp)
     for fname, region in FILES.items():
-        live_demo.build(region, RAW_DIR / fname)
         assert live.snapshot_is_demo(region)
         raw, fetched = live.load_snapshot(region)
         newest = pd.to_datetime(raw["acq_date"]).max().date()
         assert newest == (pd.Timestamp.now(tz="UTC").tz_localize(None) - pd.Timedelta(days=1)).date()
         assert "type" not in raw.columns and "is_demo" not in raw.columns
 
-    def count(a):
-        return int([m for m in a.metric if m.label == "Detections"][0].value.replace(",", ""))
-
-    keys = {"Continent": "live_continent", "Country": "live_country", "Province or state": "live_province"}
+    keys = {"Continent": "earth_l_continent", "Country": "earth_l_country", "Province or state": "earth_l_province"}
 
     def pick(a, label, i):
         sb = a.selectbox(key=keys[label])
         if len(sb.options) <= i:
             return None
         sb.set_value(sb.options[i]).run()
-        return count(a)
+        return metric(a, "Detections in Earth")
 
-    for region in FILES.values():
+    for region in regions:
         t = time.time()
-        at = run_app(tmp, None, lambda a, r=region: [x for x in a.selectbox if x.label == "Region loaded"][0]
-                     .set_value(r).run())
+
+        def setup(a, r=region):
+            to_live(a)
+            a.selectbox(key="earth_region").set_value(r).run()
+        at = None                     # free the previous app run first (memory)
+        gc.collect()
+        at = run_app(tmp, None, setup)
         took = time.time() - t
         assert not at.exception, at.exception
-        notice = "Demo snapshot: historical 2025 data shifted to look recent, for testing only. "                  "This is not current data."
-        assert any(e.value == notice for e in at.error), [e.value for e in at.error]
+        assert any(e.value == DEMO_NOTICE for e in at.error), [e.value for e in at.error]
         assert not any("hours old" in w.value for w in at.warning)
-        base = count(at)
+        base = metric(at, "Detections in Earth")
         out = {"region": region, "detections": base, "seconds": round(took, 1)}
         for label, i in (("Continent", 1), ("Country", 1), ("Province or state", 1)):
             n = pick(at, label, i)
@@ -297,41 +362,31 @@ def test_app_demo(tmp):
             assert 0 < n <= base
         assert out["Country"] < base, out
         print(out)
-    print("app demo snapshot test passed")
+    print("earth demo snapshot test passed")
 
 
 def points_drawn(at):
-    """Points sent to the browser by every map on the page, from the deck specs."""
+    """Points sent to the browser by every pydeck map on the page, from the deck specs."""
     import json
     out = []
     for el in at.get("deck_gl_json_chart"):
         spec = json.loads(el.proto.json)
-        n = sum(len(layer["data"]) for layer in spec["layers"] if layer["@@type"] == "ScatterplotLayer")
-        out.append(n)
+        out.append(sum(len(layer["data"]) for layer in spec["layers"] if layer["@@type"] == "ScatterplotLayer"))
     return out
 
 
 def test_app_geo(tmp):
-    """Four filters on the Map tab and the Live map tab, both tiers, defaults and resets."""
+    """Four filters on the Map tab and on the Earth tab (archive and live), defaults and resets."""
     import time
 
-    from src import live_demo
-    from src.config import RAW_DIR
-    from src.region_eval import REGIONS as FILES
-    live.LIVE_DIR = Path(tmp)
-    for fname, region in FILES.items():
-        live_demo.build(region, RAW_DIR / fname)
-
-    def count(a, label):
-        return int([m for m in a.metric if m.label == label][0].value.replace(",", ""))
+    regions = build_demo(tmp)
 
     def set_(a, key, value):
         a.selectbox(key=key).set_value(value).run()
         assert not a.exception, a.exception
 
     def check_filters(a, prefix, label, name):
-        base = count(a, label)
-        a.selectbox(key=f"{prefix}_country")
+        base = metric(a, label)
         assert a.selectbox(key=f"{prefix}_continent").value == "World"
         assert a.selectbox(key=f"{prefix}_country").value == "All countries"
         assert a.selectbox(key=f"{prefix}_province").value == "All provinces"
@@ -339,17 +394,17 @@ def test_app_geo(tmp):
         found = False
         for opt in a.selectbox(key=f"{prefix}_country").options[1:8]:
             set_(a, f"{prefix}_country", opt)
-            n_country = count(a, label)
+            n_country = metric(a, label)
             provinces = a.selectbox(key=f"{prefix}_province").options
             if n_country < base and len(provinces) >= 3:
                 set_(a, f"{prefix}_province", provinces[1])
-                n_prov = count(a, label)
+                n_prov = metric(a, label)
                 assert 0 < n_prov < n_country, (opt, n_prov, n_country)
                 set_(a, f"{prefix}_city", a.selectbox(key=f"{prefix}_city").options[1])
-                n_city = count(a, label)
+                n_city = metric(a, label)
                 assert 0 < n_city <= n_prov
                 set_(a, f"{prefix}_country", "All countries")           # reset
-                assert count(a, label) == base, (count(a, label), base)
+                assert metric(a, label) == base, (metric(a, label), base)
                 assert a.selectbox(key=f"{prefix}_province").value == "All provinces"
                 print(f"  {name} {prefix}: all {base:,} -> {opt} {n_country:,} -> province {n_prov:,} "
                       f"-> city {n_city:,} -> reset {base:,}")
@@ -358,21 +413,95 @@ def test_app_geo(tmp):
             set_(a, f"{prefix}_country", "All countries")
         assert found, f"{name}: no country with two provinces and fewer detections than the region"
 
-    for region in FILES.values():
+    for region in regions:
         t = time.time()
-        at = run_app(tmp, None, lambda a, r=region: a.selectbox(key="live_region").set_value(r).run())
-        assert not at.exception, at.exception
-        print(region, "default drawn points per map:", points_drawn(at), f"({time.time() - t:.0f} s)")
-        check_filters(at, "live", "Detections", region)
-        check_filters(at, "map", "Detections shown", region)
 
-    # Both tiers, with the Live map reading the same snapshot, and an upload
+        def setup(a, r=region):
+            to_live(a)
+            a.selectbox(key="earth_region").set_value(r).run()
+        at = None                     # free the previous app run first (memory)
+        gc.collect()
+        at = run_app(tmp, None, setup)
+        assert not at.exception, at.exception
+        assert at.metric, ([e.value for e in at.error], [i.value for i in at.info][-3:])
+        print(region, "Earth circles drawn:", metric(at, "Circles drawn"), f"({time.time() - t:.0f} s)")
+        check_filters(at, "earth_l", "Detections in Earth", region)
+
+    # Map tab filters (archive data, once) and the Earth tab archive filters, both tiers
+    at = None                     # free the previous app run first (memory)
+    gc.collect()
     at = run_app(tmp, None)
-    for tier in ("Instant (single reading)", "With history (past detections)"):
+    check_filters(at, "map", "Detections shown", "archive")
+    print("Map tab pydeck points drawn:", points_drawn(at))
+    for tier in (INSTANT_TIER, HISTORY_TIER):
         at.sidebar.radio[0].set_value(tier).run()
         assert not at.exception, (tier, at.exception)
-        assert count(at, "Detections shown") > 0
+        assert metric(at, "Detections shown") > 0
+        check_filters(at, "earth_a", "Detections in Earth", f"archive {tier}")
     print("geo filter tests passed")
+
+
+def test_app_earth(tmp):
+    """Earth tab: Show options, counts, errors only, ground truth disabled on live, cap, page content."""
+    from src import earth
+    build_demo(tmp)
+
+    def circles_expected(n):
+        return min(n, earth.MAX_POINTS)
+
+    at = None                     # free the previous app run first (memory)
+    gc.collect()
+    at = run_app(tmp, None)
+    assert not at.exception, at.exception
+    for tier in (INSTANT_TIER, HISTORY_TIER):
+        at.sidebar.radio[0].set_value(tier).run()
+        assert not at.exception, (tier, at.exception)
+        base = metric(at, "Detections in Earth")
+        assert at.radio(key="earth_show_a").options == earth.SHOW
+        got = {}
+        for show in earth.SHOW:
+            at.radio(key="earth_show_a").set_value(show).run()
+            assert not at.exception, (show, at.exception)
+            got[show] = metric(at, "Circles drawn")
+            html = page_html(at)
+            assert f"maplibre-gl@{earth.MAPLIBRE}" in html and "terrarium" in html and "World_Imagery" in html
+            assert "Esri" in html and "OpenStreetMap" in html           # attribution in the footer
+            for _, _, label in earth.LEGENDS[show]:
+                assert label in html, (show, label)                    # legend of this option
+            assert metric(at, "Detections in Earth") == base
+        fs, ff, wrong = (metric(at, k) for k in ("False static", "False fire", "All errors"))
+        assert fs + ff == wrong > 0
+        assert got["Raw detections"] == got["Model prediction"] == got["Ground truth"] == circles_expected(base)
+        assert got["Errors only"] == circles_expected(wrong), (got, wrong)
+        assert any("NASA's own repeat based static flag" in c.value for c in at.caption)
+        print(f"  {tier}: detections {base:,}, circles per option {got}, false static {fs:,}, "
+              f"false fire {ff:,}, errors {wrong:,}")
+        # a country filter changes the counts under Errors only too
+        c = at.selectbox(key="earth_a_country")
+        c.set_value(c.options[1]).run()
+        assert not at.exception, at.exception
+        n_country = metric(at, "Detections in Earth")
+        assert n_country < base
+        assert metric(at, "False static") + metric(at, "False fire") == metric(at, "All errors") <= wrong
+        at.selectbox(key="earth_a_country").set_value("All countries").run()
+        assert metric(at, "Detections in Earth") == base
+        at.radio(key="earth_show_a").set_value("Model prediction").run()
+
+    # Live source: ground truth and errors are disabled, with the reason in a caption
+    to_live(at)
+    assert not at.exception, at.exception
+    assert at.radio(key="earth_show_l").options == earth.SHOW[:2]
+    assert any("no ground truth on live data" in c.value for c in at.caption)
+    assert not any(m.label in ("False static", "False fire", "NASA static") for m in at.metric)
+    base = metric(at, "Detections in Earth")
+    for show in earth.SHOW[:2]:
+        at.radio(key="earth_show_l").set_value(show).run()
+        assert not at.exception, at.exception
+        assert metric(at, "Circles drawn") == circles_expected(base)
+        html = page_html(at)
+        assert "NASA label" in html                                    # popup code is shared, value is absent
+        assert '"n":[-1' in html                                       # live points carry no NASA label
+    print("earth test passed")
 
 
 def peak_memory():
@@ -399,9 +528,11 @@ def suite_unit(tmp):
     test_refresh_store(tmp)
     test_leakage_rolling_store(tmp)
     test_geography(tmp)
+    test_earth_select()
 
 
-SUITES = {"unit": suite_unit, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo}
+SUITES = {"unit": suite_unit, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
+          "app_earth": test_app_earth}
 
 
 def main(names=None):

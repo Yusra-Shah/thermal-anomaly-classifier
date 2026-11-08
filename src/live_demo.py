@@ -1,4 +1,4 @@
-"""Build demo snapshots for the Live map tab from the archive files, so it can be tested offline.
+"""Build demo snapshots for the live source of the Earth tab from the archive files, so it can be tested offline.
 
 Run from the project root:  python -m src.live_demo
 

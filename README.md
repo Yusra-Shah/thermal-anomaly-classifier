@@ -62,21 +62,9 @@ Leave one region out, the earlier instant results and the history comparisons ar
 - Labels are NASA's. There is no independent ground truth.
 - Differences between history setups are small compared with the split to split spread.
 
-## Live map
+## Earth
 
-The "Live map" tab shows recent VIIRS S-NPP near real time detections for one region at a time, scored by the history model or the instant model.
-
-- Map key: get a free key on the FIRMS website (Get MAP_KEY). Create a file named `.env` in the project root with one line, `FIRMS_MAP_KEY=your_key`, or set the same variable in the environment. `.env` is ignored by git. The key is never printed or logged. Without a key the tab says so and shows the saved snapshot.
-- Refresh: the Refresh data button fetches the last 60 days from the FIRMS area API in chunks of at most 5 days (the documented limit), then only the missing days and the latest 3 days on later refreshes. The first fetch is slower. Detections are stored per region and day in `data/live/` and the 60 day store is written to `data/live/snapshot_<region>.parquet` with the fetch time.
-- Offline: tick "Offline (saved snapshot)" or run without a key to load the snapshot. Features and scores are recomputed from it, so nothing is fetched.
-- Demo: `python -m src.live_demo` builds snapshots for the three training regions from `data/raw/` (last 60 days, dates shifted so the newest day is yesterday, flagged as demo). The tab shows a notice that this is not current data. It is for testing without a key.
-- Features: the same functions as in training, applied to the whole 60 day store as one file, so history uses only strictly earlier days.
-- Geography: country, province or state and nearest city come from the offline `reverse_geocoder` package, computed once per grid cell and cached in `data/live/`.
-- Regions: South Asia, Southeast Asia and North and Central America use the extents of the training files. "Europe (not in training)" is shown with an unvalidated banner.
-- Limitations: data is about 3 hours behind the satellite. There is no ground truth on live data, so the map shows predictions only (see the Results tab for measured performance). The history model was trained on 181 day files and is applied to a 60 day store, so history counts are capped lower than in training. The source is `VIIRS_SNPP_NRT` to match the training satellite. If NASA stops delivering that product the data age counter grows and the tab warns. Switching the source in `src/live.py` to another satellite is not validated.
-- Maps: all three map views (Map, Classify a new file, Live map) share one `draw_map` function. The basemap is the Carto Voyager vector style (country and state borders, place labels by zoom, needs internet; without it the points and outlines still draw). Selecting a country draws its outline and its provinces, selecting a province highlights it. Natural Earth 1:50m has province shapes only for Russia, the United States, India, Indonesia, China, Brazil, Canada, Australia and South Africa.
-- Boundaries: country and province outlines in `data/geo/` are from Natural Earth (https://www.naturalearthdata.com), public domain, 1:50m scale.
-- Tests: `python -m tests.test_live` (fake API responses, no network).
+The "Earth" tab is one interactive Earth built with MapLibre GL JS 5.6.0 (globe projection, loaded from a CDN) and embedded with `st.components.v1.html`. At world zoom it is a globe that turns slowly until you drag, zoom or touch it (the Rotate button resumes), and it flattens into a normal map and then city level as you zoom in. The default basemap is Esri World Imagery with Esri place labels and a Map switch for the Carto Voyager style, terrain comes from AWS terrarium tiles with hillshade, and Tilt 3D or a right mouse or Ctrl drag tilts the view. It needs internet for the library and all tiles; without it nothing is drawn. Imagery: Esri, Maxar, Earthstar Geographics and the GIS User Community. Terrain: Mapzen, AWS Terrain Tiles. Map style: Carto, OpenStreetMap contributors. Boundaries (`data/geo/`): Natural Earth, public domain. The data source is the archive (the Map tab data, same tier and operating point) or the live snapshot, and the four geography filters fly the camera to the selection and outline the chosen country and, where Natural Earth has them, its provinces. Detections are circles, at most 20,000 (a random sample, with a caption giving the real count; pick a province or city to see every detection of a place), and a click opens a popup with class, probability of static, NASA label (archive only), brightness, FRP, date, country and province. The Show switch offers Raw detections, Model prediction (red fire, grey static), Ground truth and Errors only (false static and false fire in two colours, with counts); the legend in the map follows the option, and the camera is kept when the option changes. Ground truth is NASA's own repeat based static flag, not independent truth, and it does not exist for live data, so Ground truth and Errors only are disabled there. The live source reads `VIIRS_SNPP_NRT` from the FIRMS area API: put `FIRMS_MAP_KEY=your_key` in a `.env` file in the project root (git ignores it; the key is never printed), press Refresh data to fetch the last 60 days in chunks of at most 5 days (later refreshes fetch only missing days and the latest 3), or tick Offline to use the saved snapshot. `python -m src.live_demo` builds demo snapshots from `data/raw/` with dates shifted to look recent, and the tab then shows a demo warning. Live data is about 3 hours behind the satellite, has no ground truth, and NASA's Suomi NPP delivery was reported to end on 2 November 2026, so a refresh may return nothing new. Regions: South Asia, Southeast Asia and North and Central America, plus "Europe (not in training)" with an unvalidated banner.
 
 ## Run
 
@@ -86,7 +74,7 @@ The "Live map" tab shows recent VIIRS S-NPP near real time detections for one re
     # torch, CPU build:
     pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-    # optional, for the Live map tab: put FIRMS_MAP_KEY=... in a .env file in the project root
+    # optional, for the live source of the Earth tab: put FIRMS_MAP_KEY=... in a .env file in the project root
 
     # put the archive CSV files in data/raw/
     python -m src.train --tag headline          # instant tier
@@ -97,13 +85,14 @@ The "Live map" tab shows recent VIIRS S-NPP near real time detections for one re
     python -m src.region_eval                   # instant tier, leave one region out
     python -m src.nrt_score                     # score data/nrt/SUOMI_VIIRS_C2_Global_7d.csv
     python -m tests.test_history                # leakage test
-    python -m tests.test_live                   # live data tests, no network
+    python -m tests.test_live app_earth         # live and Earth tests, no network, one suite per process
+                                                # suites: unit, app_live, app_demo, app_geo, app_earth
     streamlit run app/app.py
 
 ## Structure
 
     src/       data loading, labelling, features, history features, models, evaluation
-    app/       Streamlit app (map, upload, results)
+    app/       Streamlit app (map, upload, results, Earth)
     tests/     leakage test for the history features, synthetic data generator
     reports/   tables, figures and summaries written by the scripts
     models/    saved models (not tracked)
