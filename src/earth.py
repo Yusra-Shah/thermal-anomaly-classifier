@@ -51,7 +51,7 @@ def select(df, show, band=None):
         return df, np.zeros(len(df), dtype=int)
     if show == "Model prediction":
         if band:
-            d = uncertain.decide(df["p_static"].to_numpy(), band)
+            d = uncertain.decide(df["p_cal"].to_numpy(), band)       # band is on calibrated scores
             return df, np.where(d == uncertain.UNCERTAIN, 4, d)
         return df, pred
     truth = df["is_static"].astype(int).to_numpy()
@@ -73,7 +73,7 @@ def payload(df, kinds, band=None, cap=MAX_POINTS):
     cc, cc_names = pd.factorize(d["cc"].astype(str))
     pv, pv_names = pd.factorize(d["admin1"].astype(str))
     dt, dt_names = pd.factorize(d["acq_date"].dt.strftime("%Y-%m-%d"))
-    dec = (uncertain.decide(d["p_static"].to_numpy(), band) if band
+    dec = (uncertain.decide(d["p_cal"].to_numpy(), band) if band
            else d["pred_static"].astype(int).to_numpy())
     nasa = d["is_static"].astype(int).tolist() if "is_static" in d else [-1] * len(d)
     data = {
@@ -140,7 +140,7 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
 #foot { background: #fff; padding: 3px 8px; font-size: 10px; color: #666; height: 18px; overflow: hidden; white-space: nowrap; }
 #msg { position: absolute; bottom: 30px; left: 8px; background: rgba(255,255,255,.9); padding: 2px 6px; font-size: 11px; z-index: 2; }
 .pop { font: 12px sans-serif; line-height: 1.5; }
-#legend { position: absolute; bottom: 30px; right: 8px; z-index: 2; background: rgba(255,255,255,.92); padding: 5px 8px; font: 11px sans-serif; line-height: 1.6; border-radius: 3px; }
+#legend { position: absolute; top: 44px; left: 8px; z-index: 2; background: rgba(255,255,255,.92); padding: 5px 8px; font: 11px sans-serif; line-height: 1.6; border-radius: 3px; }
 #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid #fff; }
 </style></head>
 <body>
@@ -221,8 +221,9 @@ function installPoints() {
   colors.push(CFG.legend[0][1]);
   addLay({ id: "pts", type: "circle", source: "pts", paint: {
     "circle-color": colors,
-    "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 2.5, 6, 3.5, 12, 6, 16, 9],
-    "circle-opacity": 0.9, "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.5 } });
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 3, 5, 3.5, 8, 3, 16, 2.5],
+    "circle-opacity": ["interpolate", ["linear"], ["zoom"], 1, 0.9, 6, 0.9, 8, 0.7],
+    "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.5, "circle-stroke-opacity": 0.6 } });
 }
 
 // Terrain, hillshade and outlines come after the points are indexed, and sit below the circles.
@@ -277,6 +278,7 @@ function stats() {
   lg.innerHTML = CFG.legend.map(l => "<div><i style='background:" + l[1] + "'></i>" + l[2] + "</div>").join("") +
     "<div style='color:#666'>In source " + D.x.length.toLocaleString() + ", in view " + inView.toLocaleString() + "</div>";
 }
+try { stats(); } catch (e) {}                      // the legend shows before the first idle
 map.on("idle", stats);
 map.on("moveend", stats);
 

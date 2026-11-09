@@ -19,7 +19,8 @@ def synthetic(n=4000, seed=0):
     return y, p
 
 
-def test_band_uses_only_out_of_fold_scores():
+def test_precision_band_uses_only_out_of_fold_scores():
+    """The earlier precision based definition (a documented negative result)."""
     y_oof, p_oof = synthetic(seed=1)
     band = U.choose_band(y_oof, p_oof)
     # The band is a function of the out of fold arrays alone: any test arrays, however
@@ -37,10 +38,6 @@ def test_band_uses_only_out_of_fold_scores():
     assert y_oof[static].mean() >= U.PREC_TARGET - 1e-9
     assert (1 - y_oof[fire]).mean() >= U.NPV_TARGET - 1e-9
     assert band["t_low"] < band["t_high"] and not band["overlap"]
-    # the study code picks the band before any test array exists in that scope
-    src = open(U.__file__, encoding="utf-8").read()
-    assert "band = choose_band(ytr, oof)" in src and "m = three_way_metrics(yte, p, band)" in src
-    assert src.index("band = choose_band(ytr, oof)") < src.index("m = three_way_metrics(yte, p, band)")
     print("band from out of fold scores only: passed")
 
 
@@ -89,32 +86,93 @@ def test_calibrators():
     print("calibrators: passed")
 
 
+def test_accuracy_band_out_of_fold_only():
+    y_oof, p_oof = synthetic(seed=1)
+    cal, _ = U.pick_calibrator(p_oof, y_oof)
+    c_oof = U.apply_calibrator(cal, p_oof)
+    band = U.choose_accuracy_band(y_oof, c_oof, 0.96)
+    assert band["reachable"] and band["definition"] == "accuracy"
+    # a function of the out of fold arrays alone: test arrays, however different, cannot change it
+    y_a, p_a = synthetic(seed=2)
+    y_b, p_b = np.ones(500, int), np.linspace(0, 1, 500)
+    m_a = U.three_way_metrics(y_a, U.apply_calibrator(cal, p_a), band, U.BINARY_T)
+    m_b = U.three_way_metrics(y_b, U.apply_calibrator(cal, p_b), band, U.BINARY_T)
+    assert U.choose_accuracy_band(y_oof, c_oof, 0.96) == band
+    assert m_a["coverage"] != m_b["coverage"]
+    # the target holds on the out of fold points the band was chosen on
+    d = U.decide(c_oof, band)
+    done = d != U.UNCERTAIN
+    assert (np.where(d == U.STATIC, 1, 0)[done] == y_oof[done]).mean() >= 0.96 - 1e-9
+    # the strict band is nested in the default one
+    strict = U.choose_accuracy_band(y_oof, c_oof, 0.98)
+    assert strict["oof_coverage"] <= band["oof_coverage"] + 1e-9
+    # the study picks every band from the out of fold arrays before any test metric is computed
+    src = open(U.__file__, encoding="utf-8").read()
+    pick = src.index("choose_accuracy_band(ytr, c_oof, ACC_DEFAULT)")
+    use = src.index("m = three_way_metrics(yte,")
+    assert pick < use and "choose_accuracy_band(yte" not in src and "choose_accuracy_band(ytr, c_te" not in src
+    print("accuracy band from out of fold scores only: passed")
+
+
+def test_accuracy_band_tiny_set():
+    # scores and labels checked by hand
+    s = np.array([0.05, 0.1, 0.2, 0.4, 0.5, 0.6, 0.8, 0.9, 0.95, 0.99])
+    y = np.array([0, 0, 0, 0, 1, 0, 1, 1, 1, 1])
+    # target 0.95: fire for the first four (all fire), static for the last four (all static),
+    # the points at 0.5 and 0.6 are uncertain: coverage 0.8, accuracy 1.0
+    band = U.choose_accuracy_band(y, s, 0.95, min_support=1)
+    assert band["t_low"] == 0.4 and band["t_high"] == 0.8 and band["reachable"]
+    m = U.three_way_metrics(y, s, band, 0.5)
+    assert np.isclose(m["coverage"], 0.8) and np.isclose(m["decided_accuracy"], 1.0)
+    assert np.isclose(m["static_precision_decided"], 1.0) and np.isclose(m["static_recall_decided"], 1.0)
+    assert np.isclose(m["fire_npv_decided"], 1.0) and np.isclose(m["uncertain_share"], 0.2)
+    # forced binary at 0.5 errs on the point at 0.6 only, and that point is uncertain
+    assert m["binary_errors"] == 1 and m["errors_in_uncertain"] == 1
+    # target 0.90: the forced binary decision is accurate enough, so nothing is uncertain
+    loose = U.choose_accuracy_band(y, s, 0.90, min_support=1)
+    ml = U.three_way_metrics(y, s, loose, 0.5)
+    assert np.isclose(ml["coverage"], 1.0) and ml["decided_accuracy"] >= 0.9
+    print("accuracy band on a tiny set: passed")
+
+
+def test_accuracy_band_unreachable():
+    y = np.array([0, 1] * 500)
+    s = np.full(1000, 0.5)                                  # a score that says nothing
+    band = U.choose_accuracy_band(y, s, 0.96)
+    assert not band["reachable"] and band["t_low"] is None and band["t_high"] is None
+    assert (U.decide(s, band) == U.UNCERTAIN).all()
+    print("unreachable target reported: passed")
+
+
 def test_saved_bundles():
-    """Needs python -m src.uncertain to have run. Old keys stay, the band is present (in the bundle,
-    or in its sidecar file when the large instant bundle was locked by a running app), the history
-    model stays small."""
-    import json
+    """Needs python -m src.uncertain to have run. Old keys stay, the bands and calibrator are present
+    (in the bundle, or in a sidecar file when a bundle was locked by a running app), and the history
+    model stays under 1 MB."""
     for name, old_keys, sidecar in (("best_model_history.joblib", {"model", "features", "thresholds"},
                                      "best_model_history_band.json"),
                                     ("best_model_headline.joblib", {"model", "features", "threshold"},
                                      "best_model_headline_band.json")):
         b = joblib.load(MODEL_DIR / name, mmap_mode="r")
         assert old_keys <= set(b), name
-        band = U.band_of(b, sidecar)
-        assert band and {"t_low", "t_high", "overlap"} <= set(band), band
-        cal = b["calibrator"] if "calibrator" in b else json.loads((MODEL_DIR / sidecar).read_text())["calibrator"]
-        assert cal["kind"] in U.KINDS
-        if not band["overlap"] and band["t_low"] is not None and band["t_high"] is not None:
-            assert band["t_low"] < band["t_high"]
+        got = U.bands_of(b, sidecar)
+        assert got and got["strict"] and got["calibrator"]["kind"] in U.KINDS, name
+        d, st = got["default"], got["strict"]
+        assert d["definition"] == "accuracy" and d["target"] == 0.96 and st["target"] == 0.98
+        assert st["oof_coverage"] <= d["oof_coverage"] + 1e-9
+        assert "band_precision" in b or (MODEL_DIR / sidecar).exists()
     hist = joblib.load(MODEL_DIR / "best_model_history.joblib")
     size = (MODEL_DIR / "best_model_history.joblib").stat().st_size
     assert size < 1_000_000
-    assert abs(hist["band"]["t_high"] - hist["thresholds"]["precision >= 0.90"]) < 1e-5
+    assert hist["band_precision"]["definition"] if "definition" in hist["band_precision"] else True
+    assert abs(hist["band_precision"]["t_high"] - hist["thresholds"]["precision >= 0.90"]) < 1e-5
     print("saved bundles: passed, history model", round(size / 1e3), "KB")
 
 
 def main(bundles=True):
-    test_band_uses_only_out_of_fold_scores()
+    test_precision_band_uses_only_out_of_fold_scores()
+    test_accuracy_band_out_of_fold_only()
+    test_accuracy_band_tiny_set()
+    test_accuracy_band_unreachable()
     test_coverage_and_precision_tiny_set()
     test_thresholds_match_the_existing_operating_point()
     test_calibrators()

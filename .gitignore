@@ -26,3 +26,5 @@ data/nrt/*
 # Tidied report files
 reports/earlier_runs/
 reports/log_*.txt
+data/noaa20/*
+!data/noaa20/.gitkeep

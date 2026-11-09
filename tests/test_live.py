@@ -459,9 +459,14 @@ def test_app_earth(tmp):
         base = metric(at, "Detections in Earth")
         assert at.radio(key="earth_show_a").options == earth.SHOW
         got = {}
+        if tier == INSTANT_TIER:
+            assert at.radio(key="earth_show_a").value == "Model prediction"      # the default view
         for show in earth.SHOW:
             at.radio(key="earth_show_a").set_value(show).run()
             assert not at.exception, (show, at.exception)
+            has_band = any(r.key == "earth_band_a" for r in at.radio)
+            assert has_band == (show == "Model prediction"), (show, has_band)   # Band only with predictions
+            assert any("sidebar threshold only affects the Map tab" in c.value for c in at.caption)
             got[show] = metric(at, "Circles drawn")
             html = page_html(at)
             assert f"maplibre-gl@{earth.MAPLIBRE}" in html and "terrarium" in html and "World_Imagery" in html

@@ -218,8 +218,8 @@ def live_scored(region, stamp, _inst_bundle=None):
     hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")      # small
     inst = _inst_bundle or joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
     df = live.build_scored(region, hist, inst, raw)
-    meta = {"bands": {"history": uncertain.band_of(hist, "best_model_history_band.json"),
-                      "instant": uncertain.band_of(inst, "best_model_headline_band.json")},
+    meta = {"bands": {"history": uncertain.bands_of(hist, "best_model_history_band.json"),
+                      "instant": uncertain.bands_of(inst, "best_model_headline_band.json")},
             "inst_threshold": float(inst["threshold"]), "inst_features": list(inst["features"]),
             "thresholds": hist["thresholds"], "hist_features": list(hist["features"]),
             "default_point": hist.get("default_operating_point")}
@@ -428,15 +428,41 @@ with tab_metrics:
     if upath.exists():
         st.subheader("Uncertain band")
         u = pd.read_csv(upath)
-        cols = ["tier", "split", "t_low", "t_high", "coverage", "static_precision_decided",
-                "static_recall_decided", "errors_in_uncertain_share", "binary_precision"]
-        st.dataframe(u[cols].round(3), width="stretch", hide_index=True)
+        cols = ["tier", "split", "definition", "t_low", "t_high", "coverage", "decided_accuracy",
+                "static_precision_decided", "static_recall_decided", "fire_npv_decided",
+                "errors_in_uncertain_share"]
+        st.dataframe(u[~u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
+                     hide_index=True)
         if (REPORT_DIR / "uncertain_curve.png").exists():
             st.image(str(REPORT_DIR / "uncertain_curve.png"))
-        st.caption("Static at or above t_high, fire at or below t_low, uncertain in between. Both come from "
-                   "out of fold training scores only. Coverage is the share decided, precision and recall are "
-                   "on the decided points, binary_precision is the forced decision at t_high. NASA's flag is "
-                   "the label, not independent truth.")
+        st.caption("Scores are calibrated. Static at or above t_high, fire at or below t_low, uncertain in "
+                   "between, with the highest coverage whose accuracy on decided out of fold training points is "
+                   "0.96 (default) or 0.98 (strict). Precision and recall are on the decided points, "
+                   "errors_in_uncertain_share is the share of the forced binary errors that fall in the uncertain "
+                   "band. NASA's flag is the label, not independent truth.")
+        with st.expander("Earlier precision based definition (negative result)"):
+            st.dataframe(u[u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
+                         hide_index=True)
+            if (REPORT_DIR / "uncertain_curve_precision_based.png").exists():
+                st.image(str(REPORT_DIR / "uncertain_curve_precision_based.png"))
+            st.caption("Static precision at least 0.90 and fire side precision at least 0.95. Fire is the "
+                       "majority class, so the fire side target is almost always met, the two ranges overlap "
+                       "for the history tier and its band is empty. Kept as a documented negative result.")
+    tpath = REPORT_DIR / "noaa20_transfer.csv"
+    if tpath.exists():
+        st.subheader("NOAA-20 transfer")
+        t = pd.read_csv(tpath)
+        cols = ["model", "test_set", "region", "n", "static_share", "pr_auc", "majority_pr_auc", "precision",
+                "recall", "f1", "brier_calibrated", "ece_calibrated", "uncertain_share_0.96", "uncertain_share_0.98"]
+        cols = [c for c in cols if c in t]
+        st.dataframe(t[t["region"] == "all"][cols].round(3), width="stretch", hide_index=True)
+        with st.expander("Per region"):
+            st.dataframe(t[t["region"] != "all"][cols].round(3), width="stretch", hide_index=True)
+        st.caption("Trained on Suomi NPP cells, tested on NOAA-20 with the Suomi NPP thresholds, calibrators and "
+                   "bands unchanged. Cell disjoint means cells that were not Suomi NPP training cells. Not cell "
+                   "disjoint is easier, those places were seen in training. The two satellites observe the same "
+                   "places a few tens of minutes apart and the label is NASA's repeat based flag, so this is a transfer "
+                   "between near twins, not independent truth.")
 
 with tab_results:
     st.subheader("Rule, instant and history results")
@@ -526,35 +552,45 @@ def earth_tab(archive, tier, bundle):
         got = live_source(tier, bundle)
         if got is None:
             return
-        base, region, demo, band = got
+        base, region, demo, bands = got
         prefix, suffix = "earth_l", "l"
     else:
         base, prefix, suffix = archive, "earth_a", "a"
-        band = uncertain.band_of(bundle, "best_model_headline_band.json" if tier == INSTANT
-                                 else "best_model_history_band.json")
+        bands = uncertain.bands_of(bundle, "best_model_headline_band.json" if tier == INSTANT
+                                   else "best_model_history_band.json")
 
-    show = st.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, horizontal=True, key=f"earth_show_{suffix}")
+    show = st.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, index=1, horizontal=True,
+                    key=f"earth_show_{suffix}")
+    st.caption("In Model prediction the Band selector decides fire, static or uncertain. The sidebar threshold "
+               "only affects the Map tab and the Errors only view.")
     if is_live:
         st.caption("Ground truth and Errors only are disabled for live data: there is no ground truth on live data.")
     else:
         st.caption("Ground truth is NASA's own repeat based static flag from the label, not independent truth. "
                    "Errors only shows where the prediction disagrees with it.")
 
+    band = None
+    if show == "Model prediction" and bands and bands.get("default"):
+        pick = st.radio("Band", ["default (0.96)", "strict (0.98)"], horizontal=True, key=f"earth_band_{suffix}")
+        band = bands["default"] if pick.startswith("default") else bands["strict"]
+        if band and not band.get("reachable", True):
+            st.caption("The accuracy target is not reachable for this model, so there is no uncertain band.")
+            band = None
     if band and show == "Model prediction":
         lo = "none" if band["t_low"] is None else f"{band['t_low']:.3f}"
         hi = "none" if band["t_high"] is None else f"{band['t_high']:.3f}"
-        if band["overlap"]:
-            st.caption(f"No uncertain band for this model: the static range (at or above {hi}) and the fire "
-                       f"range (at or below {lo}) overlap, so the single threshold {hi} is used. "
-                       "NASA's flag is the label, not independent truth.")
-        else:
-            st.caption(f"Three way decision: static at or above {hi}, fire at or below {lo}, uncertain in "
-                       "between. The band comes from out of fold training scores only. "
-                       "NASA's flag is the label, not independent truth.")
+        st.caption(f"Three way decision on calibrated scores: static at or above {hi}, fire at or below {lo}, "
+                   f"uncertain in between. Accuracy target {band['target']:.2f} on decided out of fold training "
+                   "points, so the band uses no test data. NASA's flag is the label, not independent truth.")
+        if band.get("oof_coverage", 0) >= 0.999:
+            st.caption("On the training scores the forced binary decision already meets this target, so the "
+                       "band decides every point and there are no uncertain points. Try strict (0.98).")
     g, cc, province, city = geo_filters(base, prefix)
     if g.empty:
         st.info("No detections for this selection.")
         return
+    if band:
+        g = g.assign(p_cal=uncertain.apply_calibrator(bands["calibrator"], g["p_static"].to_numpy()))
     drawn, kinds = earth.select(g, show, band)
     data, note = earth.payload(drawn, kinds, band)
     if drawn.empty:
@@ -571,7 +607,7 @@ def earth_tab(archive, tier, bundle):
 
     m = st.columns(5 if band else 4)
     if band:
-        m[4].metric("Uncertain", f"{int((uncertain.decide(g['p_static'].to_numpy(), band) == uncertain.UNCERTAIN).sum()):,}")
+        m[4].metric("Uncertain", f"{int((uncertain.decide(g['p_cal'].to_numpy(), band) == uncertain.UNCERTAIN).sum()):,}")
     m[0].metric("Detections in Earth", f"{len(g):,}")
     m[1].metric("Predicted static", f"{int(g['pred_static'].sum()):,}")
     m[2].metric("Predicted fire", f"{int((1 - g['pred_static']).sum()):,}")

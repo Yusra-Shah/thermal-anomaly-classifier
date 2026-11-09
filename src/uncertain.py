@@ -1,10 +1,17 @@
 """Calibration and the uncertain band for both model tiers.
 
-A three way decision: static (p at or above t_high), fire (p at or below t_low) and
+A three way decision: static (score at or above t_high), fire (score at or below t_low) and
 uncertain in between. Both thresholds come from out of fold predictions on the training
-part only. t_high is the smallest score where static precision is at least 0.90 (the
-existing default operating point). t_low is the largest score where the precision of the
-fire side (negative predictive value) is at least 0.95.
+part only.
+
+Default definition: the scores are calibrated (Platt or isotonic, fitted on the out of fold
+scores) and the band is the pair of thresholds with the highest coverage whose accuracy on the
+decided out of fold points is at least 0.96. A strict band uses 0.98.
+
+Earlier definition, kept as a documented negative result: static precision at least 0.90 on the
+high side and fire side precision (negative predictive value) at least 0.95 on the low side.
+Fire is the majority class, so the fire side target is met almost everywhere, t_low ends up
+above t_high for the history tier, and the band is empty.
 
 Run from the project root:
     python -m src.uncertain --instant     once, computes the instant tier predictions (slow)
@@ -36,6 +43,12 @@ KINDS = ("platt", "isotonic")
 SEED = 42
 SETUP = "D instant+history v1+v2"
 LEVELS = [round(x, 3) for x in np.arange(0.60, 0.9951, 0.02)] + [0.99]
+ACC_DEFAULT, ACC_STRICT = 0.96, 0.98
+ACC_LEVELS = [round(x, 3) for x in np.arange(0.90, 0.9951, 0.005)]
+BINARY_T = 0.5                     # forced binary decision on calibrated scores
+DEF_DEFAULT = "accuracy 0.96 (default)"
+DEF_STRICT = "accuracy 0.98 (strict)"
+DEF_PRECISION = "precision based (negative result)"
 
 
 # ---------------------------------------------------------------- calibration
@@ -154,8 +167,9 @@ def decide(p, band):
     return out
 
 
-def three_way_metrics(y, p, band):
-    """Coverage and precision of the three way decision against the forced binary one at t_high."""
+def three_way_metrics(y, p, band, binary_threshold=None):
+    """Coverage and precision of the three way decision against the forced binary one, at
+    binary_threshold or, if none is given, at t_high."""
     y, p = np.asarray(y), np.asarray(p, float)
     d = decide(p, band)
     static, fire, unc = d == STATIC, d == FIRE, d == UNCERTAIN
@@ -174,7 +188,7 @@ def three_way_metrics(y, p, band):
            "static_found_share": ratio(tp, int((y == 1).sum())),
            "uncertain_share": float(unc.mean()),
            "uncertain_static_share": float(y[unc].mean()) if unc.any() else nan}
-    th = band.get("t_high")
+    th = band.get("t_high") if binary_threshold is None else binary_threshold
     if th is None:
         out.update(binary_precision=nan, binary_recall=nan, binary_errors=nan,
                    errors_in_uncertain=nan, errors_in_uncertain_share=nan, binary_error_rate=nan)
@@ -199,6 +213,59 @@ def sweep(y_oof, p_oof, y_te, p_te, levels=LEVELS):
         m = three_way_metrics(y_te, p_te, band)
         rows.append({"target": q, "t_low": band["t_low"], "t_high": band["t_high"],
                      "overlap": band["overlap"], "coverage": m["coverage"],
+                     "decided_accuracy": m["decided_accuracy"],
+                     "static_precision_decided": m["static_precision_decided"],
+                     "fire_npv_decided": m["fire_npv_decided"]})
+    return pd.DataFrame(rows)
+
+
+def choose_accuracy_band(y, scores, target, min_support=MIN_SUPPORT, max_candidates=400):
+    """The band with the highest coverage whose accuracy on the decided points is at least target.
+
+    Fire is decided for scores at or below t_low and static for scores at or above t_high; both
+    thresholds are searched (symmetric pairs are included). Uses the given arrays only, so with
+    out of fold training scores it cannot see test data. If no pair reaches the target the band is
+    marked not reachable and decides nothing.
+    """
+    y, s_ = np.asarray(y).astype(int), np.asarray(scores, float)
+    n = len(y)
+    order = np.argsort(s_, kind="stable")
+    ss, ys = s_[order], y[order]
+    neg = np.r_[0, np.cumsum(1 - ys)]
+    pos = np.r_[0, np.cumsum(ys)]
+    cuts = np.r_[0, np.flatnonzero(ss[1:] != ss[:-1]) + 1, n]        # cut positions between runs of ties
+    if len(cuts) > max_candidates:
+        cuts = cuts[np.unique(np.linspace(0, len(cuts) - 1, max_candidates).astype(int))]
+    i, j = cuts[:, None], cuts[None, :]                                # fire: first i rows, static: last n - j rows
+    decided = i + (n - j)
+    correct = neg[i] + (pos[n] - pos[j])
+    valid = (i <= j) & ((i == 0) | (i >= min_support)) & ((n - j == 0) | (n - j >= min_support)) & (decided > 0)
+    acc = np.where(decided > 0, correct / np.maximum(decided, 1), 0.0)
+    ok = valid & (acc >= target)
+    base = {"definition": "accuracy", "target": float(target), "space": "calibrated",
+            "overlap": False, "min_support": min_support}
+    if not ok.any():
+        far = valid & (decided >= 0.1 * n)
+        best = float(acc[far].max()) if far.any() else float("nan")
+        return {**base, "reachable": False, "t_low": None, "t_high": None,
+                "oof_coverage": 0.0, "oof_accuracy": float("nan"), "best_accuracy_at_10_percent": best}
+    pick = np.where(ok, decided + acc * 1e-3, -1.0)
+    ii, jj = np.unravel_index(int(np.argmax(pick)), pick.shape)
+    lo, hi = int(cuts[ii]), int(cuts[jj])
+    return {**base, "reachable": True,
+            "t_low": float(ss[lo - 1]) if lo > 0 else None,
+            "t_high": float(ss[hi]) if hi < n else None,
+            "oof_coverage": float(decided[ii, jj] / n), "oof_accuracy": float(acc[ii, jj])}
+
+
+def sweep_accuracy(y_oof, s_oof, y_te, s_te, levels=ACC_LEVELS):
+    """Coverage against accuracy as the accuracy target moves, bands chosen on out of fold scores."""
+    rows = []
+    for q in levels:
+        band = choose_accuracy_band(y_oof, s_oof, q)
+        m = three_way_metrics(y_te, s_te, band, BINARY_T)
+        rows.append({"target": q, "reachable": band["reachable"], "t_low": band["t_low"],
+                     "t_high": band["t_high"], "coverage": m["coverage"],
                      "decided_accuracy": m["decided_accuracy"],
                      "static_precision_decided": m["static_precision_decided"],
                      "fire_npv_decided": m["fire_npv_decided"]})
@@ -293,23 +360,33 @@ def main():
     y_te = {n: df.iloc[te][TARGET].values for n, (tr, te, _) in splits.items()}
     groups = {n: df.iloc[tr]["cell_id"].values for n, (tr, te, _) in splits.items()}
 
-    eval_rows, region_rows, curve_rows, cal_rows, rel_rows, bands = [], [], [], [], [], {}
+    eval_rows, region_rows, cal_rows, rel_rows = [], [], [], []
+    curve_acc, curve_prec, store, items = [], [], {}, {}
     for tier, per in tiers.items():
         for name in splits:
             oof, p = np.asarray(per[name]["oof"], float), np.asarray(per[name]["p"], float)
             ytr, yte = y_tr[name], y_te[name]
-            band = choose_band(ytr, oof)                       # out of fold training scores only
-            bands[(tier, name)] = band
-            m = three_way_metrics(yte, p, band)
-            eval_rows.append({"tier": tier, "split": name, "t_low": band["t_low"], "t_high": band["t_high"],
-                              "overlap": band["overlap"], **m})
-            c = sweep(ytr, oof, yte, p)
-            c.insert(0, "split", name)
-            c.insert(0, "tier", tier)
-            curve_rows.append(c)
+            cal, scores = pick_calibrator(oof, ytr, groups[name])          # out of fold scores only
+            c_oof, c_te = apply_calibrator(cal, oof), apply_calibrator(cal, p)
+            bands = {DEF_DEFAULT: choose_accuracy_band(ytr, c_oof, ACC_DEFAULT),
+                     DEF_STRICT: choose_accuracy_band(ytr, c_oof, ACC_STRICT),
+                     DEF_PRECISION: choose_band(ytr, oof)}                 # earlier definition, raw scores
+            for definition, band in bands.items():
+                precision_def = definition == DEF_PRECISION
+                m = three_way_metrics(yte, p if precision_def else c_te, band, None if precision_def else BINARY_T)
+                eval_rows.append({"tier": tier, "split": name, "definition": definition,
+                                  "reachable": band.get("reachable", True), "t_low": band["t_low"],
+                                  "t_high": band["t_high"], "overlap": band["overlap"],
+                                  "oof_coverage": band.get("oof_coverage"), "oof_accuracy": band.get("oof_accuracy"),
+                                  **m})
+            for curves, frame in ((curve_acc, sweep_accuracy(ytr, c_oof, yte, c_te)),
+                                  (curve_prec, sweep(ytr, oof, yte, p))):
+                frame.insert(0, "split", name)
+                frame.insert(0, "tier", tier)
+                curves.append(frame)
+            store[(tier, name)] = {"p": p, "c": c_te, "y": yte, "bands": bands}
             if tier != "rule" and name in ("grouped seed 42", "temporal"):
-                cal, scores = pick_calibrator(oof, ytr, groups[name])
-                pc = apply_calibrator(cal, p)
+                pc = c_te
                 cal_rows.append({"tier": tier, "split": name, "chosen": cal["kind"],
                                  "oof_brier_platt": scores["platt"], "oof_brier_isotonic": scores["isotonic"],
                                  "test_brier_raw": brier(yte, p), "test_brier_calibrated": brier(yte, pc),
@@ -321,17 +398,20 @@ def main():
                     r.insert(0, "split", name)
                     r.insert(0, "tier", tier)
                     rel_rows.append(r)
-                if name == "grouped seed 42":
-                    bands[(tier, "calibrator")] = cal
+            if name == "grouped seed 42":
+                items[tier] = {"band": bands[DEF_DEFAULT], "band_strict": bands[DEF_STRICT],
+                               "band_precision": bands[DEF_PRECISION], "calibrator": cal}
 
     ev = pd.DataFrame(eval_rows)
     ev.round(4).to_csv(REPORT_DIR / "uncertain_eval.csv", index=False)
-    pd.concat(curve_rows).round(4).to_csv(REPORT_DIR / "uncertain_curve.csv", index=False)
+    ca, cp = pd.concat(curve_acc), pd.concat(curve_prec)
+    ca.round(4).to_csv(REPORT_DIR / "uncertain_curve.csv", index=False)
+    cp.round(4).to_csv(REPORT_DIR / "uncertain_curve_precision_based.csv", index=False)
     pd.DataFrame(cal_rows).round(4).to_csv(REPORT_DIR / "calibration_summary.csv", index=False)
     pd.concat(rel_rows).round(4).to_csv(REPORT_DIR / "calibration_reliability.csv", index=False)
 
-    # Uncertain share per region: leave one region out (model never saw the region), and the
-    # held out grouped split cut by region.
+    # Uncertain share per region: leave one region out (the model never saw the region) and the
+    # held out grouped split cut by region, for every definition.
     for tier in ("history", "instant", "rule"):
         for setting in ("leave out", "grouped seed 42"):
             for region in sorted(df["region"].unique()):
@@ -340,43 +420,56 @@ def main():
                 sel = (df.iloc[te]["region"] == region).values
                 if not sel.any():
                     continue
-                band = bands[(tier, name)]
-                p = np.asarray(tiers[tier][name]["p"], float)[sel]
-                y = y_te[name][sel]
-                d = decide(p, band)
-                region_rows.append({"tier": tier, "setting": setting, "region": region, "n": int(sel.sum()),
-                                    "uncertain_share": float((d == UNCERTAIN).mean()),
-                                    "static_decided_share": float((d == STATIC).mean()),
-                                    "fire_decided_share": float((d == FIRE).mean()),
-                                    "true_static_share": float(y.mean())})
-    pd.DataFrame(region_rows).round(4).to_csv(REPORT_DIR / "uncertain_regions.csv", index=False)
+                st = store[(tier, name)]
+                y = st["y"][sel]
+                for definition, band in st["bands"].items():
+                    s_ = (st["p"] if definition == DEF_PRECISION else st["c"])[sel]
+                    d = decide(s_, band)
+                    region_rows.append({"tier": tier, "setting": setting, "region": region,
+                                        "definition": definition, "n": int(sel.sum()),
+                                        "uncertain_share": float((d == UNCERTAIN).mean()),
+                                        "static_decided_share": float((d == STATIC).mean()),
+                                        "fire_decided_share": float((d == FIRE).mean()),
+                                        "decided_accuracy": float((np.where(d == STATIC, 1, 0)[d != UNCERTAIN]
+                                                                   == y[d != UNCERTAIN]).mean())
+                                        if (d != UNCERTAIN).any() else float("nan"),
+                                        "true_static_share": float(y.mean())})
+    reg = pd.DataFrame(region_rows)
+    reg.round(4).to_csv(REPORT_DIR / "uncertain_regions.csv", index=False)
 
-    plot_curves(pd.concat(curve_rows), ev)
+    plot_curves(ca, ev, DEF_DEFAULT, "uncertain_curve.png", "accuracy based band, dot is the default")
+    plot_curves(cp, ev, DEF_PRECISION, "uncertain_curve_precision_based.png",
+                "precision based band, negative result")
     plot_reliability(pd.concat(rel_rows))
-    save_bundles(bands)
-    print(ev.round(4).to_string())
-    print(pd.DataFrame(region_rows).round(3).to_string())
+    save_bundles(items)
+    show = ev[ev["definition"] != DEF_PRECISION]
+    cols = ["tier", "split", "definition", "reachable", "t_low", "t_high", "coverage", "decided_accuracy",
+            "static_precision_decided", "static_recall_decided", "fire_npv_decided", "binary_errors",
+            "errors_in_uncertain", "errors_in_uncertain_share"]
+    print(show[cols].round(4).to_string())
+    print(reg[reg["definition"] == DEF_DEFAULT].round(3).to_string())
     print(pd.DataFrame(cal_rows).round(4).to_string())
 
 
-def plot_curves(curves, ev):
+def plot_curves(curves, ev, definition, fname, note):
     fig, axes = plt.subplots(1, 2, figsize=(9.5, 4), sharey=True)
     colors = {"grouped seed 42": "#1f77b4", "temporal": "#c0392b"}
     for ax, tier in zip(axes, ("history", "instant")):
         for name, col in colors.items():
             for t, ls, lab in ((tier, "-", tier), ("rule", "--", "one line rule")):
                 c = curves[(curves["tier"] == t) & (curves["split"] == name)].dropna(subset=["decided_accuracy"])
-                ax.plot(c["coverage"], c["decided_accuracy"], ls, color=col, lw=1.4,
-                        label=f"{name}, {lab}")
-            row = ev[(ev["tier"] == tier) & (ev["split"] == name)].iloc[0]
-            ax.plot([row["coverage"]], [row["decided_accuracy"]], "o", color=col, ms=6)
-        ax.set_title(f"{tier} tier (dot is the chosen band)", fontsize=10)
+                ax.plot(c["coverage"], c["decided_accuracy"], ls, color=col, lw=1.4, label=f"{name}, {lab}")
+            row = ev[(ev["tier"] == tier) & (ev["split"] == name) & (ev["definition"] == definition)].iloc[0]
+            if row["coverage"] > 0:
+                ax.plot([row["coverage"]], [row["decided_accuracy"]], "o", color=col, ms=6)
+        ax.set_title(f"{tier} tier", fontsize=10)
         ax.set_xlabel("Coverage (share decided)")
         ax.set_xlim(0, 1.02)
     axes[0].set_ylabel("Accuracy on decided points")
     axes[0].legend(frameon=False, fontsize=7, loc="lower left")
+    fig.suptitle(note, fontsize=9)
     fig.tight_layout()
-    fig.savefig(REPORT_DIR / "uncertain_curve.png", dpi=160)
+    fig.savefig(REPORT_DIR / fname, dpi=160)
     plt.close(fig)
 
 
@@ -408,42 +501,47 @@ def _jsonable(c):
     return {k: (v.tolist() if hasattr(v, "tolist") else v) for k, v in c.items()}
 
 
-def band_of(bundle, sidecar):
-    """The band stored in a bundle, or in its sidecar file when the bundle could not be rewritten."""
-    if bundle.get("band"):
-        return bundle["band"]
-    path = MODEL_DIR / sidecar
-    if path.exists():
-        return json.loads(path.read_text())["band"]
-    return None
+def bands_of(bundle, sidecar):
+    """The accuracy bands and calibrator of a model, or None. They are read from the bundle, or
+    from its sidecar file when the large bundle could not be rewritten while an app held it open.
+    Bundles that only hold the earlier precision based band give None."""
+    src = bundle if (bundle.get("band") or {}).get("definition") == "accuracy" else None
+    if src is None:
+        path = MODEL_DIR / sidecar
+        if not path.exists():
+            return None
+        src = json.loads(path.read_text())
+        if (src.get("band") or {}).get("definition") != "accuracy":
+            return None
+    return {"default": src["band"], "strict": src.get("band_strict"), "calibrator": src.get("calibrator")}
 
 
-def save_bundles(bands):
-    """Add the band and the calibrator to each model bundle. Existing keys are untouched, so
-    older code still loads the files. The instant bundle is large and is rewritten through a
-    temporary file. If another process (a running app) has the file memory mapped, Windows
-    refuses the replace: the band and calibrator then go to a small sidecar file that the app
-    reads, and rerunning this script once the app is stopped completes the bundle."""
+def save_bundles(items):
+    """Add band (default 0.96), band_strict (0.98), band_precision (the earlier definition) and the
+    calibrator to each model bundle. Existing keys are untouched, so older code still loads the
+    files. The instant bundle is large and is rewritten through a temporary file. If another
+    process (a running app) has it memory mapped, Windows refuses the replace: the same keys then
+    go to a small sidecar file that the app reads, and rerunning this script once the app is
+    stopped completes the bundle."""
+    import gc
     for tier, fname, sidecar in (("history", "best_model_history.joblib", "best_model_history_band.json"),
                                  ("instant", "best_model_headline.joblib", "best_model_headline_band.json")):
         path = MODEL_DIR / fname
         bundle = dict(joblib.load(path))
-        band, cal = _clean(bands[(tier, "grouped seed 42")]), bands[(tier, "calibrator")]
-        if band == bundle.get("band") and "calibrator" in bundle:
-            print("bundle already holds the band:", fname)
-            continue
-        bundle["band"], bundle["calibrator"] = band, cal
+        extra = {k: (_clean(v) if k.startswith("band") else v) for k, v in items[tier].items()}
+        bundle.update(extra)
         tmp = path.with_suffix(".tmp")
         joblib.dump(bundle, tmp)
         del bundle
-        import gc
         gc.collect()
         try:
             tmp.replace(path)
-            print("saved band and calibrator in", fname, round(path.stat().st_size / 1e6, 2), "MB")
+            (MODEL_DIR / sidecar).unlink(missing_ok=True)
+            print("saved bands and calibrator in", fname, round(path.stat().st_size / 1e6, 2), "MB")
         except PermissionError:
             tmp.unlink(missing_ok=True)
-            (MODEL_DIR / sidecar).write_text(json.dumps({"band": band, "calibrator": _jsonable(cal)}))
+            side = {k: (_jsonable(v) if k == "calibrator" else v) for k, v in extra.items()}
+            (MODEL_DIR / sidecar).write_text(json.dumps(side))
             print("could not replace", fname, "(in use); wrote", sidecar, "instead")
 
 
