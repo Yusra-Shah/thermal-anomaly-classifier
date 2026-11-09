@@ -8,7 +8,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from . import geo
+from . import geo, uncertain
 
 MAPLIBRE = "5.6.0"
 MAX_POINTS = 20_000
@@ -19,7 +19,7 @@ ATTRIBUTION = ("Imagery: Esri, Maxar, Earthstar Geographics and the GIS User Com
 
 
 SHOW = ["Raw detections", "Model prediction", "Ground truth", "Errors only"]
-COLORS = {"fire": "#d63027", "static": "#8a8a8a", "raw": "#e0a030", "false_static": "#e08a00", "false_fire": "#6f3fb0"}
+COLORS = {"fire": "#d63027", "static": "#8a8a8a", "raw": "#3b82c4", "uncertain": "#f0b400", "false_static": "#e08a00", "false_fire": "#6f3fb0"}
 LEGENDS = {
     "Raw detections": [[0, COLORS["raw"], "Detection"]],
     "Model prediction": [[0, COLORS["fire"], "Predicted fire"], [1, COLORS["static"], "Predicted static"]],
@@ -29,18 +29,30 @@ LEGENDS = {
 }
 
 
+def legend(show, three_way=False):
+    """Legend entries for a Show option. The prediction view gets an uncertain entry when a band is used."""
+    entries = [list(e) for e in LEGENDS[show]]
+    if three_way and show == "Model prediction":
+        entries.append([4, COLORS["uncertain"], "Uncertain (needs investigation)"])
+    return entries
+
+
 def error_counts(df):
     """False static and false fire counts against the NASA label (archive only)."""
     pred, truth = df["pred_static"].astype(int), df["is_static"].astype(int)
     return int(((pred == 1) & (truth == 0)).sum()), int(((pred == 0) & (truth == 1)).sum())
 
 
-def select(df, show):
-    """Rows to draw and a category code per row (see LEGENDS)."""
+def select(df, show, band=None):
+    """Rows to draw and a category code per row (see LEGENDS). With a band, the prediction view
+    uses the three way decision and code 4 means uncertain."""
     pred = df["pred_static"].astype(int).to_numpy()
     if show == "Raw detections":
         return df, np.zeros(len(df), dtype=int)
     if show == "Model prediction":
+        if band:
+            d = uncertain.decide(df["p_static"].to_numpy(), band)
+            return df, np.where(d == uncertain.UNCERTAIN, 4, d)
         return df, pred
     truth = df["is_static"].astype(int).to_numpy()
     if show == "Ground truth":
@@ -49,7 +61,7 @@ def select(df, show):
     return df[wrong], np.where(pred[wrong] == 1, 2, 3)
 
 
-def payload(df, kinds, cap=MAX_POINTS):
+def payload(df, kinds, band=None, cap=MAX_POINTS):
     """Compact arrays for at most `cap` points (random sample) and the sample note.
 
     kinds is the category code per row of df, used for the circle colour.
@@ -61,11 +73,13 @@ def payload(df, kinds, cap=MAX_POINTS):
     cc, cc_names = pd.factorize(d["cc"].astype(str))
     pv, pv_names = pd.factorize(d["admin1"].astype(str))
     dt, dt_names = pd.factorize(d["acq_date"].dt.strftime("%Y-%m-%d"))
+    dec = (uncertain.decide(d["p_static"].to_numpy(), band) if band
+           else d["pred_static"].astype(int).to_numpy())
     nasa = d["is_static"].astype(int).tolist() if "is_static" in d else [-1] * len(d)
     data = {
         "x": d["longitude"].round(3).tolist(), "y": d["latitude"].round(3).tolist(),
         "p": d["p_static"].round(3).tolist(), "c": d["pred_static"].astype(int).tolist(),
-        "k": d["_k"].astype(int).tolist(), "n": nasa,
+        "k": d["_k"].astype(int).tolist(), "n": nasa, "dec": [int(x) for x in dec],
         "t": d["bright_ti4"].round(1).tolist(), "f": d["frp"].round(1).tolist(),
         "d": dt.tolist(), "dn": list(dt_names), "g": cc.tolist(),
         "gn": [geo.country_name(c) for c in cc_names], "a": pv.tolist(), "an": list(pv_names)}
@@ -94,9 +108,9 @@ def outlines(cc, province, df=None):
     return out
 
 
-def html(data, box, shapes, show, sig, demo=False, height=700):
+def html(data, box, shapes, show, sig, demo=False, height=700, three_way=False):
     cfg = {"data": data, "box": box, "shapes": shapes, "lines": geo.country_lines(), "demo": demo,
-           "legend": LEGENDS[show], "sig": sig}
+           "legend": legend(show, three_way), "sig": sig}
     page = (TEMPLATE.replace("__VER__", MAPLIBRE).replace("__HEIGHT__", str(height - 24))
             .replace("__ATTR__", ATTRIBUTION).replace("__CFG__", json.dumps(cfg, separators=(",", ":"))))
     return BOOT.replace("__PAGE__", page.replace("</script", "<\\/script"))
@@ -328,7 +342,7 @@ map.on("click", (e) => {
   if (!hits.length) return;
   const i = hits[0].properties.i;
   const nasa = D.n[i] < 0 ? "" : "NASA label: " + (D.n[i] === 1 ? "static" : "fire") + "<br>";
-  const html = "<div class='pop'><b>" + (D.c[i] === 1 ? "Predicted static heat source" : "Predicted fire") + "</b><br>" +
+  const html = "<div class='pop'><b>Decision: " + (D.dec[i] === 1 ? "static heat source" : D.dec[i] === 0 ? "fire" : "uncertain, needs investigation") + "</b><br>" +
     "Probability of static: " + D.p[i] + "<br>" + nasa + "Brightness (I-4): " + D.t[i] + " K<br>FRP: " + D.f[i] + " MW<br>" +
     "Date: " + D.dn[D.d[i]] + "<br>Country: " + D.gn[D.g[i]] + "<br>Province: " + D.an[D.a[i]] + "</div>";
   new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.lngLat).setHTML(html).addTo(map);

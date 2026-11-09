@@ -466,8 +466,13 @@ def test_app_earth(tmp):
             html = page_html(at)
             assert f"maplibre-gl@{earth.MAPLIBRE}" in html and "terrarium" in html and "World_Imagery" in html
             assert "Esri" in html and "OpenStreetMap" in html           # attribution in the footer
-            for _, _, label in earth.LEGENDS[show]:
+            for _, _, label in earth.legend(show, show == "Model prediction"):
                 assert label in html, (show, label)                    # legend of this option
+            assert "Decision: " in html                                # three way decision in the popup
+            if show == "Model prediction":
+                assert "Uncertain (needs investigation)" in html and "Uncertain" in [m.label for m in at.metric]
+            else:
+                assert "Uncertain (needs investigation)" not in html
             assert metric(at, "Detections in Earth") == base
         fs, ff, wrong = (metric(at, k) for k in ("False static", "False fire", "All errors"))
         assert fs + ff == wrong > 0

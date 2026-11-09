@@ -13,7 +13,7 @@ import streamlit.components.v1 as components
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src import earth, geo, live  # noqa: E402
+from src import earth, geo, live, uncertain  # noqa: E402
 from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
 from src.features import add_features  # noqa: E402
@@ -218,7 +218,9 @@ def live_scored(region, stamp, _inst_bundle=None):
     hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")      # small
     inst = _inst_bundle or joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
     df = live.build_scored(region, hist, inst, raw)
-    meta = {"inst_threshold": float(inst["threshold"]), "inst_features": list(inst["features"]),
+    meta = {"bands": {"history": uncertain.band_of(hist, "best_model_history_band.json"),
+                      "instant": uncertain.band_of(inst, "best_model_headline_band.json")},
+            "inst_threshold": float(inst["threshold"]), "inst_features": list(inst["features"]),
             "thresholds": hist["thresholds"], "hist_features": list(hist["features"]),
             "default_point": hist.get("default_operating_point")}
     del inst
@@ -229,7 +231,7 @@ def live_source(tier, bundle):
     """Controls and data of the live source: region, model, refresh, offline, days shown.
 
     tier and bundle are the sidebar's: the instant model is reused when it is already loaded.
-    Returns (frame with p_static and pred_static, region, demo) or None when nothing can be shown.
+    Returns (frame with p_static and pred_static, region, demo, band) or None when nothing can be shown.
     """
     if not (MODEL_DIR / "best_model_history.joblib").exists() or \
             not (MODEL_DIR / "best_model_headline.joblib").exists():
@@ -302,7 +304,7 @@ def live_source(tier, bundle):
     if age_h > 24 and not demo:
         st.warning(f"The newest detection in this region is {age_h:.0f} hours old. Either the snapshot is "
                    "old or the source has stopped delivering new data.")
-    return view, region, demo
+    return view, region, demo, meta["bands"]["history" if live_tier == HISTORY else "instant"]
 
 
 # ---------------------------------------------------------------- sidebar
@@ -422,6 +424,19 @@ with tab_metrics:
             b.image(str(REPORT_DIR / f"feature_importance_{TAG}.png"))
         st.caption("Scores are on locations the model never saw during training. The label is NASA's "
                    "own type flag. The confusion matrix uses the saved threshold.")
+    upath = REPORT_DIR / "uncertain_eval.csv"
+    if upath.exists():
+        st.subheader("Uncertain band")
+        u = pd.read_csv(upath)
+        cols = ["tier", "split", "t_low", "t_high", "coverage", "static_precision_decided",
+                "static_recall_decided", "errors_in_uncertain_share", "binary_precision"]
+        st.dataframe(u[cols].round(3), width="stretch", hide_index=True)
+        if (REPORT_DIR / "uncertain_curve.png").exists():
+            st.image(str(REPORT_DIR / "uncertain_curve.png"))
+        st.caption("Static at or above t_high, fire at or below t_low, uncertain in between. Both come from "
+                   "out of fold training scores only. Coverage is the share decided, precision and recall are "
+                   "on the decided points, binary_precision is the forced decision at t_high. NASA's flag is "
+                   "the label, not independent truth.")
 
 with tab_results:
     st.subheader("Rule, instant and history results")
@@ -511,10 +526,12 @@ def earth_tab(archive, tier, bundle):
         got = live_source(tier, bundle)
         if got is None:
             return
-        base, region, demo = got
+        base, region, demo, band = got
         prefix, suffix = "earth_l", "l"
     else:
         base, prefix, suffix = archive, "earth_a", "a"
+        band = uncertain.band_of(bundle, "best_model_headline_band.json" if tier == INSTANT
+                                 else "best_model_history_band.json")
 
     show = st.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, horizontal=True, key=f"earth_show_{suffix}")
     if is_live:
@@ -523,12 +540,23 @@ def earth_tab(archive, tier, bundle):
         st.caption("Ground truth is NASA's own repeat based static flag from the label, not independent truth. "
                    "Errors only shows where the prediction disagrees with it.")
 
+    if band and show == "Model prediction":
+        lo = "none" if band["t_low"] is None else f"{band['t_low']:.3f}"
+        hi = "none" if band["t_high"] is None else f"{band['t_high']:.3f}"
+        if band["overlap"]:
+            st.caption(f"No uncertain band for this model: the static range (at or above {hi}) and the fire "
+                       f"range (at or below {lo}) overlap, so the single threshold {hi} is used. "
+                       "NASA's flag is the label, not independent truth.")
+        else:
+            st.caption(f"Three way decision: static at or above {hi}, fire at or below {lo}, uncertain in "
+                       "between. The band comes from out of fold training scores only. "
+                       "NASA's flag is the label, not independent truth.")
     g, cc, province, city = geo_filters(base, prefix)
     if g.empty:
         st.info("No detections for this selection.")
         return
-    drawn, kinds = earth.select(g, show)
-    data, note = earth.payload(drawn, kinds)
+    drawn, kinds = earth.select(g, show, band)
+    data, note = earth.payload(drawn, kinds, band)
     if drawn.empty:
         st.info("No errors in this selection.")
     else:
@@ -538,10 +566,12 @@ def earth_tab(archive, tier, bundle):
         sig = "|".join([src, str(region)] + [str(st.session_state.get(f"{prefix}_{n}"))
                                              for n in ("continent", "country", "province", "city")])
         page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
-                          show, sig, demo)
+                          show, sig, demo, three_way=bool(band))
         components.html(page, height=700)
 
-    m = st.columns(4)
+    m = st.columns(5 if band else 4)
+    if band:
+        m[4].metric("Uncertain", f"{int((uncertain.decide(g['p_static'].to_numpy(), band) == uncertain.UNCERTAIN).sum()):,}")
     m[0].metric("Detections in Earth", f"{len(g):,}")
     m[1].metric("Predicted static", f"{int(g['pred_static'].sum()):,}")
     m[2].metric("Predicted fire", f"{int((1 - g['pred_static']).sum()):,}")
