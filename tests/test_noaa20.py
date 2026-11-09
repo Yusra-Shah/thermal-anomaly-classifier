@@ -145,8 +145,42 @@ def test_history_built_per_file():
     print("history built per file: passed")
 
 
+def test_noaa21_source_and_folder():
+    """The NOAA-21 run asks for the NOAA-21 source, saves in its own folder and keeps the key out of messages."""
+    urls = []
+
+    class Sess:
+        def get(self, url, timeout=0):
+            urls.append(url)
+
+            class R:
+                status_code = 200
+                text = "latitude,longitude\n"
+            return R()
+    noaa20.fetch((61, 24, 76, 36), date(2025, 1, 1), 5, KEY, session=Sess(), source=noaa20.SOURCES["noaa21"])
+    assert "/VIIRS_NOAA21_SP/" in urls[0] and "/VIIRS_NOAA20_SP/" not in urls[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        old = noaa20.OUT_DIR
+        noaa20.OUT_DIR = Path(tmp)
+        try:
+            assert noaa20.chunk_path("South Asia", date(2025, 1, 1), 5, "noaa21").parts[-4:-2] == ("noaa21", "chunks")
+            assert noaa20.chunk_path("South Asia", date(2025, 1, 1), 5).parts[-3] == "chunks"
+            seen = []
+
+            def fake(box, day, n, key):
+                seen.append(day)
+                return "latitude,longitude,acq_date,acq_time,type\n25.0,68.0,%s,0742,0\n" % day
+            calls, _ = noaa20.download(KEY, fetcher=fake, sleep=lambda s: None, regions=["South Asia"],
+                                       log=lambda *a: None, sat="noaa21")
+            assert calls == 37 and len(noaa20.missing_chunks("noaa21")) == 74 and len(noaa20.missing_chunks()) == 111
+        finally:
+            noaa20.OUT_DIR = old
+    print("noaa21 source and folder: passed")
+
+
 def main():
     test_chunks_cover_every_day_once()
+    test_noaa21_source_and_folder()
     test_key_never_printed()
     test_download_resumes()
     test_country_cut()

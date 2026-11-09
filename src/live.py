@@ -7,6 +7,11 @@ FIRMS area API (https://firms.modaps.eosdis.nasa.gov/api/area/):
     /api/area/csv/{MAP_KEY}/{SOURCE}/{west,south,east,north}/{DAY_RANGE}/{YYYY-MM-DD}
 DAY_RANGE is 1 to 5 in the documentation, and the range runs forward from the date, so the
 last 60 days are fetched in chunks of 5 days.
+
+Sources are the near real time feeds of NOAA-20 and NOAA-21. Each satellite has its own rolling
+store, every row keeps the satellite name, and the history features are built inside one satellite
+only. The models were trained on Suomi NPP, which no longer delivers near real time data. These
+feeds have no type column, so there is no ground truth.
 """
 import os
 import time
@@ -25,7 +30,9 @@ from .label import add_cell
 LIVE_DIR = ROOT / "data" / "live"
 ENV_FILE = ROOT / ".env"
 BASE_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv"
-SOURCE = "VIIRS_SNPP_NRT"      # same satellite as the training data
+LIVE_SOURCES = {"NOAA-20": "VIIRS_NOAA20_NRT", "NOAA-21": "VIIRS_NOAA21_NRT"}
+SOURCE = LIVE_SOURCES["NOAA-20"]
+PAUSE = 1.0                    # seconds between calls, far below 5000 transactions per 10 minutes
 MAX_DAY_RANGE = 5              # documented limit of the area API
 KEEP_DAYS = 60
 REFETCH_DAYS = 3
@@ -98,36 +105,44 @@ def _slug(region):
     return "".join(c.lower() if c.isalnum() else "_" for c in region).strip("_")
 
 
-def region_dir(region):
-    return LIVE_DIR / _slug(region)
+def region_dir(region, sat=None):
+    """Folder of the day files of a region, one sub folder per satellite."""
+    d = LIVE_DIR / _slug(region)
+    return d / _slug(sat) if sat else d
 
 
 def snapshot_path(region):
     return LIVE_DIR / f"snapshot_{_slug(region)}.parquet"
 
 
-def _day_files(region):
-    d = region_dir(region)
+def _day_files(region, sat):
+    d = region_dir(region, sat)
     return sorted(d.glob("*.parquet")) + sorted(d.glob("*.empty")) if d.exists() else []
 
 
-def stored_days(region):
-    return {pd.Timestamp(p.stem).normalize() for p in _day_files(region)}
+def stored_days(region, sat):
+    return {pd.Timestamp(p.stem).normalize() for p in _day_files(region, sat)}
 
 
-def load_store(region):
-    """All stored raw detections of a region, or None."""
-    d = region_dir(region)
-    parts = [pd.read_parquet(p) for p in sorted(d.glob("*.parquet"))] if d.exists() else []
+def load_store(region, sat=None):
+    """Stored raw detections of a region (one satellite, or all of them), or None. Every row has
+    a satellite_name column."""
+    parts = []
+    for name in ([sat] if sat else LIVE_SOURCES):
+        d = region_dir(region, name)
+        for p in (sorted(d.glob("*.parquet")) if d.exists() else []):
+            part = pd.read_parquet(p)
+            part["satellite_name"] = name
+            parts.append(part)
     if not parts:
         return None
     return pd.concat(parts, ignore_index=True)
 
 
-def days_to_fetch(region, today):
+def days_to_fetch(region, today, sat):
     """Missing days of the last KEEP_DAYS plus the latest REFETCH_DAYS, oldest first."""
     wanted = [today - timedelta(days=i) for i in range(KEEP_DAYS)]
-    have = stored_days(region)
+    have = stored_days(region, sat)
     latest = {today - timedelta(days=i) for i in range(REFETCH_DAYS)}
     return sorted(d for d in wanted if d not in have or d in latest)
 
@@ -145,20 +160,20 @@ def _chunks(days):
     return out
 
 
-def refresh(region, key, today=None, fetch=fetch_chunk, progress=None):
-    """Fetch what is missing, merge into the store, prune, write the snapshot.
+def refresh(region, key, today=None, fetch=fetch_chunk, progress=None, sleep=time.sleep, pause=PAUSE):
+    """Fetch what is missing for both satellites, merge into the stores, prune, write the snapshot.
 
-    `fetch(key, box, start, days)` is injectable so tests need no network.
-    Returns a dict with the number of requests and new rows.
+    `fetch(key, box, start, days, source)` is injectable so tests need no network. The satellites
+    are never mixed: each has its own store. Returns a dict with the number of requests and new rows.
     """
     today = pd.Timestamp(today or datetime.now(timezone.utc).date()).normalize()
     box = REGIONS[region]
-    d = region_dir(region)
-    d.mkdir(parents=True, exist_ok=True)
-    chunks = _chunks(days_to_fetch(region, today))
+    plan = [(sat, run) for sat in LIVE_SOURCES for run in _chunks(days_to_fetch(region, today, sat))]
     new_rows = 0
-    for i, run in enumerate(chunks):
-        raw = fetch(key, box, run[0].to_pydatetime(), len(run))
+    for i, (sat, run) in enumerate(plan):
+        d = region_dir(region, sat)
+        d.mkdir(parents=True, exist_ok=True)
+        raw = fetch(key, box, run[0].to_pydatetime(), len(run), LIVE_SOURCES[sat])
         if len(raw):
             raw = normalize_columns(raw)
             day = pd.to_datetime(raw["acq_date"]).dt.normalize()
@@ -173,16 +188,19 @@ def refresh(region, key, today=None, fetch=fetch_chunk, progress=None):
             else:
                 f.with_suffix(".empty").touch()
         if progress:
-            progress((i + 1) / len(chunks))
+            progress((i + 1) / len(plan))
+        if i + 1 < len(plan):
+            sleep(pause)
     cutoff = today - timedelta(days=KEEP_DAYS - 1)
-    for p in _day_files(region):
-        if pd.Timestamp(p.stem) < cutoff:
-            p.unlink()
+    for sat in LIVE_SOURCES:
+        for p in _day_files(region, sat):
+            if pd.Timestamp(p.stem) < cutoff:
+                p.unlink()
     store = load_store(region)
     if store is not None:
-        store = store.drop_duplicates(subset=["latitude", "longitude", "acq_date", "acq_time"])
+        store = store.drop_duplicates(subset=["latitude", "longitude", "acq_date", "acq_time", "satellite_name"])
         write_snapshot(region, store)
-    return {"requests": len(chunks), "new_rows": new_rows}
+    return {"requests": len(plan), "new_rows": new_rows}
 
 
 def write_snapshot(region, store, fetched_at=None, demo=False):
@@ -216,7 +234,8 @@ def snapshot_is_demo(region):
 
 # ------------------------------------------------------------------ features and scoring
 def prepare(raw, region):
-    """Training pipeline on the whole rolling store treated as one file.
+    """Training pipeline on the whole rolling store of one satellite treated as one file (a snapshot
+    with several satellites is split by its satellite_name column).
 
     History uses only detections on strictly earlier days, so a detection never sees
     the same day or later rows.
@@ -226,7 +245,10 @@ def prepare(raw, region):
     if missing:
         raise ValueError(f"missing columns: {missing}")
     df = add_cell(add_features(clean(df)))
-    df["source_file"] = _slug(region)
+    if "satellite_name" in df.columns:               # one history per satellite, never mixed
+        df["source_file"] = _slug(region) + "_" + df["satellite_name"].map(_slug)
+    else:
+        df["source_file"] = _slug(region)
     return add_history_v2(add_history(df))
 
 

@@ -48,13 +48,25 @@ def fake_detections(n_days=60, end=None, seed=0):
     return df.drop_duplicates(["latitude", "longitude", "acq_date", "acq_time"]).reset_index(drop=True)
 
 
+def two_satellites(n_days=60, end=None):
+    """A store frame with a satellite_name column for both near real time satellites."""
+    parts = []
+    for i, sat in enumerate(live.LIVE_SOURCES):
+        d = fake_detections(n_days, end=end, seed=i)
+        d["satellite_name"] = sat
+        parts.append(d)
+    return pd.concat(parts, ignore_index=True)
+
+
 def fake_fetch_factory(master, log):
-    def fetch(key, box, start, days):
-        log.append((pd.Timestamp(start).normalize(), days))
+    """master is one frame, or a dict from source name to frame."""
+    def fetch(key, box, start, days, source=None):
+        log.append((pd.Timestamp(start).normalize(), days, source))
         lo = pd.Timestamp(start).normalize()
         hi = lo + pd.Timedelta(days=days - 1)
-        d = pd.to_datetime(master["acq_date"])
-        return master[(d >= lo) & (d <= hi)].copy()
+        m = master[source] if isinstance(master, dict) else master
+        d = pd.to_datetime(m["acq_date"])
+        return m[(d >= lo) & (d <= hi)].copy()
     return fetch
 
 
@@ -80,7 +92,11 @@ def test_fetch_chunk():
     s = FakeSession(FakeResponse(200, csv))
     out = live.fetch_chunk(KEY, live.REGIONS[REGION], pd.Timestamp("2025-01-01"), 5, session=s)
     assert len(out) == 3
-    assert s.urls[0].endswith("/VIIRS_SNPP_NRT/61.0,24.0,76.0,36.0/5/2025-01-01"), s.urls[0]
+    assert s.urls[0].endswith("/VIIRS_NOAA20_NRT/61.0,24.0,76.0,36.0/5/2025-01-01"), s.urls[0]
+    s = FakeSession(FakeResponse(200, csv))
+    live.fetch_chunk(KEY, live.REGIONS[REGION], pd.Timestamp("2025-01-01"), 5, source=live.LIVE_SOURCES["NOAA-21"],
+                     session=s)
+    assert "/VIIRS_NOAA21_NRT/" in s.urls[0]
 
     assert live.fetch_chunk(KEY, live.REGIONS[REGION], pd.Timestamp("2025-01-01"), 1,
                             session=FakeSession(FakeResponse(200, ""))).empty
@@ -124,28 +140,98 @@ def test_fetch_chunk():
 
 def test_refresh_store(tmp):
     live.LIVE_DIR = Path(tmp)
-    master = fake_detections(63, end=TODAY + pd.Timedelta(days=2))   # includes two future days
-    log = []
-    fetch = fake_fetch_factory(master, log)
-    r = live.refresh(REGION, KEY, today=TODAY, fetch=fetch)
-    assert r["requests"] == 12 and all(d <= 5 for _, d in log), log
-    assert len(live.stored_days(REGION)) == 60
+    sats = list(live.LIVE_SOURCES)
+    masters = {live.LIVE_SOURCES[n]: fake_detections(63, end=TODAY + pd.Timedelta(days=2), seed=i)
+               for i, n in enumerate(sats)}                           # includes two future days
+    log, waits = [], []
+    fetch = fake_fetch_factory(masters, log)
+    r = live.refresh(REGION, KEY, today=TODAY, fetch=fetch, sleep=waits.append)
+    assert r["requests"] == 24 and all(d <= 5 for _, d, _ in log), log        # 12 chunks per satellite
+    assert {src for _, _, src in log} == set(live.LIVE_SOURCES.values())
+    assert len(waits) == 23 and all(w == live.PAUSE for w in waits)        # a short pause between calls
+    for sat in sats:
+        assert len(live.stored_days(REGION, sat)) == 60
     store = live.load_store(REGION)
+    assert set(store["satellite_name"]) == set(sats)                      # the satellite name is kept per row
     assert pd.to_datetime(store["acq_date"]).max() == TODAY
-    assert not store.duplicated(["latitude", "longitude", "acq_date", "acq_time"]).any()
+    assert not store.duplicated(["latitude", "longitude", "acq_date", "acq_time", "satellite_name"]).any()
+    assert len(live.load_store(REGION, "NOAA-20")) != len(live.load_store(REGION, "NOAA-21"))
     snap, fetched = live.load_snapshot(REGION)
-    assert len(snap) == len(store) and fetched is not None
+    assert len(snap) == len(store) and fetched is not None and "satellite_name" in snap.columns
 
     log.clear()
-    r = live.refresh(REGION, KEY, today=TODAY, fetch=fetch)         # only the latest 3 days
-    assert r["requests"] == 1 and log == [(TODAY - pd.Timedelta(days=2), 3)], log
+    r = live.refresh(REGION, KEY, today=TODAY, fetch=fetch, sleep=lambda t: None)   # the latest 3 days each
+    assert r["requests"] == 2 and sorted(d for _, d, _ in log) == [3, 3], log
+    assert {start for start, _, _ in log} == {TODAY - pd.Timedelta(days=2)}
 
     log.clear()
-    live.refresh(REGION, KEY, today=TODAY + pd.Timedelta(days=2), fetch=fetch)
-    days = live.stored_days(REGION)
-    assert len(days) == 60 and min(days) == TODAY - pd.Timedelta(days=57), (len(days), min(days))
-    assert log == [(TODAY, 3)], log                              # the latest 3 days only
+    live.refresh(REGION, KEY, today=TODAY + pd.Timedelta(days=2), fetch=fetch, sleep=lambda t: None)
+    for sat in sats:
+        days = live.stored_days(REGION, sat)
+        assert len(days) == 60 and min(days) == TODAY - pd.Timedelta(days=57), (len(days), min(days))
+    assert sorted(log) == sorted([(TODAY, 3, v) for v in live.LIVE_SOURCES.values()]), log
     print("rolling store test passed")
+
+
+def test_key_not_printed_in_refresh(tmp):
+    """A failing request inside refresh must not leak the key in the message or the traceback."""
+    import traceback
+    live.LIVE_DIR = Path(tmp)
+
+    class Boom:
+        def get(self, url, timeout=None):
+            raise ConnectionError(f"failed for url {url}")
+
+    def fetch(key, box, start, days, source):
+        return live.fetch_chunk(key, box, start, days, source=source, session=Boom())
+    try:
+        live.refresh(REGION, KEY, today=TODAY, fetch=fetch, sleep=lambda t: None)
+        raise AssertionError("expected FirmsError")
+    except live.FirmsError as e:
+        text = str(e) + "".join(traceback.format_exception(e))
+        assert KEY not in text and "://" not in text and "ConnectionError" in text
+    print("key not printed in refresh passed")
+
+
+def test_history_per_satellite(tmp):
+    """History features are built inside one satellite and never mix satellites."""
+    live.LIVE_DIR = Path(tmp)
+    feats = HISTORY_FEATURES + HISTORY_V2_FEATURES
+    both = two_satellites(60)
+    got = live.prepare(both, REGION)
+    key = ["latitude", "longitude", "acq_date", "acq_time"]
+    for sat in live.LIVE_SOURCES:
+        alone = live.prepare(both[both["satellite_name"] == sat].drop(columns=["satellite_name"]), REGION)
+        a = got[got["satellite_name"] == sat].set_index(key)[feats].sort_index()
+        b = alone.set_index(key)[feats].sort_index()
+        assert a.index.equals(b.index) and np.allclose(a.to_numpy(float), b.to_numpy(float), atol=1e-6), sat
+    # changing one satellite leaves the other satellite's history untouched
+    alt = both.copy()
+    mask = alt["satellite_name"] == "NOAA-21"
+    alt = pd.concat([alt, alt[mask].assign(acq_time=lambda d: (d["acq_time"] + 5) % 2400)], ignore_index=True)
+    got2 = live.prepare(alt, REGION)
+    a = got[got["satellite_name"] == "NOAA-20"].set_index(key)[feats].sort_index()
+    b = got2[got2["satellite_name"] == "NOAA-20"].set_index(key)[feats].sort_index()
+    assert a.index.equals(b.index) and np.allclose(a.to_numpy(float), b.to_numpy(float), atol=1e-6)
+    # a satellite that starts later has its own day zero
+    old21 = (both["satellite_name"] == "NOAA-21") & (pd.to_datetime(both["acq_date"]) < TODAY - pd.Timedelta(days=20))
+    g3 = live.prepare(both[~old21], REGION)
+    assert g3[g3["satellite_name"] == "NOAA-21"]["days_into_data"].min() == 0
+    assert g3[g3["satellite_name"] == "NOAA-20"]["days_into_data"].max() >= 58
+    print("history per satellite passed")
+
+
+def test_live_check_helpers():
+    from src import live_check
+    day = pd.Timestamp("2026-11-01")
+    rows = [(1, day - pd.Timedelta(days=i), 0.9) for i in range(10)]            # busy static cell
+    rows += [(2, day - pd.Timedelta(days=i), 0.1) for i in range(10)]            # busy fire cell
+    rows += [(3, day, 0.9)] * 3                                                    # too few detections
+    rows += [(4, day - pd.Timedelta(days=60 + i), 0.9) for i in range(12)]       # too old
+    df = pd.DataFrame(rows, columns=["cell_id", "acq_date", "p"])
+    busy, static = live_check.cells_static(df, "p", 0.5)
+    assert busy == {1, 2} and static == {1}, (busy, static)
+    print("live check helpers passed")
 
 
 def test_leakage_rolling_store(tmp):
@@ -191,7 +277,7 @@ def test_geography(tmp):
 
 INSTANT_TIER = "Instant (single reading)"
 HISTORY_TIER = "With history (past detections)"
-LIVE_SRC = "Live snapshot (demo)"
+LIVE_SRC = "Live near real time"
 DEMO_NOTICE = ("Demo snapshot: historical 2025 data shifted to look recent, for testing only. "
                "This is not current data.")
 
@@ -253,7 +339,7 @@ def test_earth_select():
 def test_app_live(tmp):
     """Live source of the Earth tab: notices, key handling, offline, model choice, regions."""
     live.LIVE_DIR = Path(tmp)
-    live.write_snapshot(REGION, fake_detections(60))
+    live.write_snapshot(REGION, two_satellites(60))        # a genuine snapshot: no is_demo flag
 
     # Offline with a snapshot and no key
     at = None                     # free the previous app run first (memory)
@@ -262,8 +348,14 @@ def test_app_live(tmp):
     assert not at.exception, at.exception
     texts = [w.value for w in at.warning]
     assert any("No FIRMS map key" in t for t in texts), texts
-    assert any("2 November 2026" in t for t in texts), texts
+    assert not any("2 November 2026" in t or "delivery ended" in t for t in texts), texts
+    assert not any(e.value == DEMO_NOTICE for e in at.error), [e.value for e in at.error]   # real, not demo
     assert any("Near real time" in i.value and "no ground truth" in i.value for i in at.info)
+    caps = [c.value for c in at.caption]
+    assert any("trained on Suomi NPP and validated on NOAA-20 and NOAA-21 archive data" in c and
+               "has not been validated against the archive" in c for c in caps), caps
+    assert any("Rows per satellite: NOAA-20" in c and "NOAA-21" in c and "Acquisition dates" in c for c in caps), caps
+    assert any("Last fetch" in c for c in caps), caps
     assert KEY not in str(at)
     labels = [m.label for m in at.metric]
     for want in ("Detections in Earth", "Predicted fire", "Predicted static", "Circles drawn"):
@@ -536,6 +628,9 @@ def peak_memory():
 def suite_unit(tmp):
     test_fetch_chunk()
     test_refresh_store(tmp)
+    test_key_not_printed_in_refresh(tmp)
+    test_history_per_satellite(tmp)
+    test_live_check_helpers()
     test_leakage_rolling_store(tmp)
     test_geography(tmp)
     test_earth_select()

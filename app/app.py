@@ -240,11 +240,11 @@ def live_source(tier, bundle):
         return None
     hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")   # a few hundred KB
     key = live.load_key()
-    st.info("Near real time data, about 3 hours behind the satellite. There is no ground truth on live "
-            "data: see the Results tab for measured performance. The models were trained on three "
-            "regions. History features need up to 60 days of data, so the first fetch is slower.")
-    st.warning("Suomi NPP data delivery ended on 2 November 2026, so a refresh may return nothing new. "
-               "The data age and the warning below show how old the newest detection is.")
+    st.info("Near real time data from NOAA-20 and NOAA-21, about 3 hours behind the satellite. There is no "
+            "ground truth on live data, so only predictions are shown. History features are built inside each "
+            "satellite and need up to 60 days of data, so the first fetch is slower.")
+    st.caption("The models were trained on Suomi NPP and validated on NOAA-20 and NOAA-21 archive data. "
+               "Near real time data has not been validated against the archive.")
 
     c1, c2, c3, c4 = st.columns([3, 3, 3, 2])
     region = c1.selectbox("Region loaded", list(live.REGIONS), key="earth_region")
@@ -300,7 +300,12 @@ def live_source(tier, bundle):
     view = df[df["acq_date"] > df["acq_date"].max() - pd.Timedelta(days=days)]
     view = view.assign(p_static=view[col], pred_static=(view[col] >= thr).astype(int))
     st.caption(f"Latest detection {latest:%Y-%m-%d %H:%M} UTC, data age {age_h:.1f} h."
-               + (f" Snapshot fetched {fetched:%Y-%m-%d %H:%M} UTC." if fetched is not None else ""))
+               + (f" Last fetch {fetched:%Y-%m-%d %H:%M} UTC." if fetched is not None else ""))
+    if not demo and "satellite_name" in df.columns:
+        per = df["satellite_name"].value_counts()
+        rows = ", ".join(f"{n} {int(per.get(n, 0)):,}" for n in live.LIVE_SOURCES)
+        st.caption(f"Acquisition dates {df['acq_date'].min():%Y-%m-%d} to {df['acq_date'].max():%Y-%m-%d}. "
+                   f"Rows per satellite: {rows}.")
     if age_h > 24 and not demo:
         st.warning(f"The newest detection in this region is {age_h:.0f} hours old. Either the snapshot is "
                    "old or the source has stopped delivering new data.")
@@ -448,21 +453,27 @@ with tab_metrics:
             st.caption("Static precision at least 0.90 and fire side precision at least 0.95. Fire is the "
                        "majority class, so the fire side target is almost always met, the two ranges overlap "
                        "for the history tier and its band is empty. Kept as a documented negative result.")
-    tpath = REPORT_DIR / "noaa20_transfer.csv"
-    if tpath.exists():
-        st.subheader("NOAA-20 transfer")
-        t = pd.read_csv(tpath)
-        cols = ["model", "test_set", "region", "n", "static_share", "pr_auc", "majority_pr_auc", "precision",
-                "recall", "f1", "brier_calibrated", "ece_calibrated", "uncertain_share_0.96", "uncertain_share_0.98"]
+    parts = []
+    for sat_file, sat_name in (("noaa20_transfer.csv", "NOAA-20"), ("noaa21_transfer.csv", "NOAA-21")):
+        if (REPORT_DIR / sat_file).exists():
+            parts.append(pd.read_csv(REPORT_DIR / sat_file).assign(satellite=sat_name))
+    if parts:
+        st.subheader("NOAA-20 and NOAA-21 transfer")
+        t = pd.concat(parts, ignore_index=True)
+        t = t[~t["test_set"].str.contains("reference") | (t["satellite"] == parts[0]["satellite"].iloc[0])]
+        cols = ["satellite", "model", "test_set", "region", "n", "static_share", "pr_auc", "majority_pr_auc",
+                "precision", "recall", "f1", "brier_calibrated", "ece_calibrated", "uncertain_share_0.96",
+                "uncertain_share_0.98"]
         cols = [c for c in cols if c in t]
         st.dataframe(t[t["region"] == "all"][cols].round(3), width="stretch", hide_index=True)
         with st.expander("Per region"):
             st.dataframe(t[t["region"] != "all"][cols].round(3), width="stretch", hide_index=True)
-        st.caption("Trained on Suomi NPP cells, tested on NOAA-20 with the Suomi NPP thresholds, calibrators and "
-                   "bands unchanged. Cell disjoint means cells that were not Suomi NPP training cells. Not cell "
-                   "disjoint is easier, those places were seen in training. The two satellites observe the same "
-                   "places a few tens of minutes apart and the label is NASA's repeat based flag, so this is a transfer "
-                   "between near twins, not independent truth.")
+        st.caption("Trained on Suomi NPP cells, tested on NOAA-20 and NOAA-21 archive data with the Suomi NPP "
+                   "thresholds, calibrators and bands unchanged. Cell disjoint means cells that were not Suomi NPP "
+                   "training cells. Not cell disjoint is easier, those places were seen in training. The satellites "
+                   "observe the same places within a short time of each other and the label is NASA's repeat based "
+                   "flag, so this is a transfer between near twins, not independent truth. The Suomi NPP reference "
+                   "rows are shown once.")
 
 with tab_results:
     st.subheader("Rule, instant and history results")
@@ -536,7 +547,7 @@ with tab_results:
         "in that rule. The instant tier uses a single reading and is much weaker.")
 
 
-ARCHIVE_SRC, LIVE_SRC = "Archive (Jan to Jun 2025)", "Live snapshot (demo)"
+ARCHIVE_SRC, LIVE_SRC = "Archive (Jan to Jun 2025)", "Live near real time"
 
 
 def earth_tab(archive, tier, bundle):

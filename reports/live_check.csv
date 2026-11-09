@@ -1,0 +1,10 @@
+region,satellite,rows,first_day,last_day,predicted_static_share,instant_static_share,cells_10plus_30d,cells_10plus_predicted_static,static_cells_in_both,jaccard,share_of_noaa20_static_also_noaa21,share_of_noaa21_static_also_noaa20
+South Asia,NOAA-20,19686.0,2026-09-11,2026-11-09,0.0514,0.1004,38.0,24,,,,
+South Asia,NOAA-21,17872.0,2026-09-11,2026-11-09,0.0588,0.1108,34.0,24,,,,
+South Asia,overlap,,,,,,,31,17.0,0.5484,0.7083,0.7083
+Southeast Asia,NOAA-20,407638.0,2026-09-11,2026-11-09,0.07,0.4004,2848.0,324,,,,
+Southeast Asia,NOAA-21,397395.0,2026-09-11,2026-11-09,0.0748,0.4048,2641.0,290,,,,
+Southeast Asia,overlap,,,,,,,447,167.0,0.3736,0.5154,0.5759
+North and Central America,NOAA-20,79811.0,2026-09-11,2026-11-09,0.2489,0.4331,497.0,352,,,,
+North and Central America,NOAA-21,76149.0,2026-09-11,2026-11-09,0.2549,0.444,482.0,342,,,,
+North and Central America,overlap,,,,,,,417,277.0,0.6643,0.7869,0.8099

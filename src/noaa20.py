@@ -25,6 +25,7 @@ import pandas as pd
 from .config import ROOT
 
 SOURCE = "VIIRS_NOAA20_SP"
+SOURCES = {"noaa20": "VIIRS_NOAA20_SP", "noaa21": "VIIRS_NOAA21_SP"}
 START, END = date(2025, 1, 1), date(2025, 6, 30)
 MAX_DAY_RANGE = 5
 PAUSE = 2.0                               # seconds between calls
@@ -66,11 +67,11 @@ def chunks(start=START, end=END, size=MAX_DAY_RANGE):
     return out
 
 
-def fetch(box, day, days, key, session=None, retries=3, sleep=time.sleep):
+def fetch(box, day, days, key, session=None, retries=3, sleep=time.sleep, source=SOURCE):
     """CSV text of one chunk. Raises SafeError with the exception class and the HTTP status only."""
     import requests
     get = (session or requests).get
-    url = f"{BASE}/{key}/{SOURCE}/{','.join(str(v) for v in box)}/{days}/{day:%Y-%m-%d}"
+    url = f"{BASE}/{key}/{source}/{','.join(str(v) for v in box)}/{days}/{day:%Y-%m-%d}"
     status, kind = None, ""
     for attempt in range(retries + 1):
         try:
@@ -92,20 +93,28 @@ def fetch(box, day, days, key, session=None, retries=3, sleep=time.sleep):
     raise SafeError(f"{kind}, HTTP status {status}")
 
 
-def chunk_path(region, day, days):
-    return OUT_DIR / "chunks" / region.replace(" ", "_").lower() / f"{day:%Y-%m-%d}_{days}.csv"
+def out_dir(sat="noaa20"):
+    """Folder of a satellite. NOAA-20 uses OUT_DIR, the others a folder inside it (ignored by git with the rest of data/noaa20)."""
+    return OUT_DIR if sat == "noaa20" else OUT_DIR / sat
 
 
-def download(key, fetcher=fetch, sleep=time.sleep, log=print, regions=None, reverse=False):
+def chunk_path(region, day, days, sat="noaa20"):
+    return out_dir(sat) / "chunks" / region.replace(" ", "_").lower() / f"{day:%Y-%m-%d}_{days}.csv"
+
+
+def download(key, fetcher=fetch, sleep=time.sleep, log=print, regions=None, reverse=False, sat="noaa20"):
     """Fetch every missing chunk of the regions. Returns (calls made, rows saved). Several runs can
     share the work: a run with reverse=True starts from the last chunk, and chunks already on disk
     are skipped."""
     calls = rows = 0
+    if fetcher is fetch:
+        def fetcher(box, day, n, k):
+            return fetch(box, day, n, k, source=SOURCES[sat])
     plan = [(r, d, n) for r in (regions or REGION_BOXES) for d, n in chunks()]
     if reverse:
         plan.reverse()
     for i, (region, day, n) in enumerate(plan, 1):
-        path = chunk_path(region, day, n)
+        path = chunk_path(region, day, n, sat)
         if path.exists():
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,8 +133,8 @@ def download(key, fetcher=fetch, sleep=time.sleep, log=print, regions=None, reve
     return calls, rows
 
 
-def missing_chunks():
-    return [(r, d, n) for r in REGION_BOXES for d, n in chunks() if not chunk_path(r, d, n).exists()]
+def missing_chunks(sat="noaa20"):
+    return [(r, d, n) for r in REGION_BOXES for d, n in chunks() if not chunk_path(r, d, n, sat).exists()]
 
 
 def in_country(lon, lat, code):
@@ -140,11 +149,11 @@ def in_country(lon, lat, code):
     return np.asarray(contains_xy(geom, np.asarray(lon, float), np.asarray(lat, float)))
 
 
-def combine(region):
+def combine(region, sat="noaa20"):
     """All chunks of a region as one frame (the type column kept)."""
     frames = []
     for d, n in chunks():
-        p = chunk_path(region, d, n)
+        p = chunk_path(region, d, n, sat)
         if p.exists() and p.stat().st_size > 0:
             t = p.read_text(encoding="utf-8")
             if t.startswith("latitude"):
@@ -152,17 +161,17 @@ def combine(region):
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def build_files(log=print):
+def build_files(log=print, sat="noaa20"):
     """Cut every region to its country and write data/noaa20/noaa20_<region>.csv."""
     stats = {}
     for region, code in REGION_COUNTRY.items():
-        df = combine(region)
+        df = combine(region, sat)
         if df.empty:
             continue
         inside = in_country(df["longitude"], df["latitude"], code)
         kept = df[inside].drop_duplicates(subset=["latitude", "longitude", "acq_date", "acq_time"])
-        name = f"noaa20_{region.replace(' ', '_').lower()}.csv"
-        kept.to_csv(OUT_DIR / name, index=False)
+        name = f"{sat}_{region.replace(' ', '_').lower()}.csv"
+        kept.to_csv(out_dir(sat) / name, index=False)
         stats[region] = {"box_rows": len(df), "country": code, "country_rows": len(kept),
                          "static_type2": int((kept["type"] == 2).sum()), "file": name}
         log(f"{region}: {len(df):,} rows in the box, {len(kept):,} inside {code}, file {name}")
@@ -172,6 +181,7 @@ def build_files(log=print):
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser()
+    ap.add_argument("--sat", default="noaa20", choices=sorted(SOURCES), help="satellite")
     ap.add_argument("--regions", nargs="*", default=None, help="only these regions")
     ap.add_argument("--reverse", action="store_true", help="start from the last chunk")
     ap.add_argument("--no-build", action="store_true", help="download only, do not write the country files")
@@ -179,21 +189,21 @@ def main(argv=None):
     key = read_key()
     if not key:
         raise SystemExit("No map key found in the environment or .env")
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"{len(missing_chunks())} of {len(REGION_BOXES) * len(chunks())} chunks to fetch", flush=True)
+    out_dir(a.sat).mkdir(parents=True, exist_ok=True)
+    print(f"{len(missing_chunks(a.sat))} of {len(REGION_BOXES) * len(chunks())} chunks to fetch", flush=True)
     for attempt in range(3):                                   # failed chunks are retried in later rounds
-        calls, rows = download(key, regions=a.regions, reverse=a.reverse)
+        calls, rows = download(key, regions=a.regions, reverse=a.reverse, sat=a.sat)
         print(f"round {attempt + 1}: {calls} calls, {rows:,} rows", flush=True)
-        if not [m for m in missing_chunks() if a.regions is None or m[0] in a.regions]:
+        if not [m for m in missing_chunks(a.sat) if a.regions is None or m[0] in a.regions]:
             break
         time.sleep(60)
     if a.no_build:
         return
-    left = missing_chunks()
+    left = missing_chunks(a.sat)
     if left:
         print(f"{len(left)} chunks are still missing, run again to resume", flush=True)
         return
-    build_files()
+    build_files(sat=a.sat)
 
 
 if __name__ == "__main__":
