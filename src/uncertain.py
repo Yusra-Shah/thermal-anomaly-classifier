@@ -291,8 +291,8 @@ def _splits(df):
     return out
 
 
-def compute_instant(df, splits):
-    """Instant tier scores. The grouped split uses the shipped Random Forest (300 trees, 5 folds,
+def compute_instant_rf(df, splits):
+    """Instant tier scores of the replaced random forest. The grouped split uses the Random Forest (300 trees, 5 folds,
     as in src.train). The other splits use 100 trees and 3 folds, as in the earlier region and
     history reports. Cached in data/processed/uncertain_instant.pkl."""
     from .train import best_threshold, build_models
@@ -320,6 +320,31 @@ def compute_instant(df, splits):
             p = m.predict_proba(df.iloc[te][FEATURES])[:, 1]
             del m
         store[name] = {"oof": oof.astype(np.float32), "p": p.astype(np.float32)}
+        pickle.dump(store, open(cache, "wb"))
+        print("instant", name, "done", flush=True)
+    return store
+
+
+def compute_instant(df, splits):
+    """Instant tier scores of the shipped XGBoost model (100 trees). The grouped and temporal splits reuse
+    the out of fold and test scores of src/daynight.py (5 folds), the leave one region out splits use 3
+    folds. Cached in data/processed/uncertain_instant_xgb.pkl."""
+    from . import daynight
+    cache = PROC_DIR / "uncertain_instant_xgb.pkl"
+    store = pickle.load(open(cache, "rb")) if cache.exists() else {}
+    dn = daynight._load()
+    for name, (tr, te, _) in splits.items():
+        if name in store:
+            continue
+        x = dn.get(("xgb", name, "full model"))
+        if x is not None:
+            store[name] = {"oof": np.asarray(x["oof"], np.float32), "p": np.asarray(x["p"], np.float32)}
+        else:
+            X, y, g = df.iloc[tr], df.iloc[tr][TARGET].values, df.iloc[tr]["cell_id"].values
+            model, oof, _ = daynight.fit_variant(X, y, g, list(FEATURES), folds=3)
+            store[name] = {"oof": oof.astype(np.float32),
+                           "p": model.predict_proba(df.iloc[te][FEATURES])[:, 1].astype(np.float32)}
+            del model
         pickle.dump(store, open(cache, "wb"))
         print("instant", name, "done", flush=True)
     return store

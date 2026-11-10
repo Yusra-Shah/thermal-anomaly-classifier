@@ -227,6 +227,21 @@ def live_scored(region, stamp, _inst_bundle=None):
     return df, fetched, meta
 
 
+def instant_note():
+    """One line on the instant tier, with the numbers of the day and night study when its report exists."""
+    text = "The instant tier mostly separates night detections and is weak on its own, prefer the history tier."
+    path = REPORT_DIR / "daynight_vs_baseline.csv"
+    if path.exists():
+        d = pd.read_csv(path)
+        d = d[(d["split"] == "grouped seed 42") & d["tier"].str.startswith("instant")]
+        if len(d):
+            r = d.iloc[-1]
+            text += (f" On held out cells its static PR-AUC is {r['pr_auc']:.2f} against {r['baseline_pr_auc']:.2f} "
+                     f"for calling every night detection static, and its F1 is {r['f1']:.2f} against "
+                     f"{r['baseline_f1']:.2f}.")
+    return text
+
+
 def live_source(tier, bundle):
     """Controls and data of the live source: region, model, refresh, offline, days shown.
 
@@ -256,6 +271,7 @@ def live_source(tier, bundle):
         thr, col = float(hist["thresholds"][point]), "p_static_history"
     else:
         thr, col = None, "p_static_instant"          # the saved threshold is read with the scores below
+        st.caption(instant_note())
     if key is None:
         c4.caption("Offline: no map key")
         offline = True
@@ -475,6 +491,36 @@ with tab_metrics:
                    "flag, so this is a transfer between near twins, not independent truth. The Suomi NPP reference "
                    "rows are shown once.")
 
+    strat = REPORT_DIR / "daynight_stratified.csv"
+    if strat.exists():
+        st.subheader("Day and night")
+        sdf = pd.read_csv(strat)
+        base = pd.read_csv(REPORT_DIR / "daynight_vs_baseline.csv") if (REPORT_DIR / "daynight_vs_baseline.csv").exists() else None
+        if base is not None:
+            st.caption("Static PR-AUC and F1 over all detections against a baseline that calls every night "
+                       "detection static.")
+            st.dataframe(base[["split", "tier", "pr_auc", "baseline_pr_auc", "pr_auc_above_baseline", "f1",
+                               "baseline_f1", "f1_above_baseline"]].round(3), width="stretch", hide_index=True)
+        with st.expander("Stratified by day and night, every tier"):
+            cols = ["split", "tier", "stratum", "n", "static_share", "majority_pr_auc", "pr_auc", "precision",
+                    "recall", "f1"]
+            st.dataframe(sdf[cols].round(3), width="stretch", hide_index=True)
+            st.caption("Day and night detections are scored on their own, each with its own majority baseline "
+                       "(the static share of that stratum). The night baseline predicts static for every night "
+                       "detection. NASA's flag is the label, not independent truth.")
+    abl = REPORT_DIR / "daynight_ablation.csv"
+    if abl.exists():
+        st.subheader("Instant tier ablation")
+        adf = pd.read_csv(abl)
+        st.dataframe(adf[adf["stratum"] == "all"][["variant", "n_features", "pr_auc", "precision", "recall", "f1",
+                                                    "threshold"]].round(3), width="stretch", hide_index=True)
+        if (REPORT_DIR / "daynight_permutation.csv").exists():
+            with st.expander("Permutation importance on the held out split"):
+                st.dataframe(pd.read_csv(REPORT_DIR / "daynight_permutation.csv").round(4), width="stretch",
+                             hide_index=True)
+        st.caption("XGBoost with 100 trees on the grouped split, retrained without one group of features at a "
+                   "time, thresholds from out of fold training scores only.")
+
 with tab_results:
     st.subheader("Rule, instant and history results")
     shown = False
@@ -567,6 +613,8 @@ def earth_tab(archive, tier, bundle):
         prefix, suffix = "earth_l", "l"
     else:
         base, prefix, suffix = archive, "earth_a", "a"
+        if tier == INSTANT:
+            st.caption(instant_note())
         bands = uncertain.bands_of(bundle, "best_model_headline_band.json" if tier == INSTANT
                                    else "best_model_history_band.json")
 

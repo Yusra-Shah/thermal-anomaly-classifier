@@ -1,0 +1,26 @@
+split,tier,pr_auc,baseline_pr_auc,pr_auc_above_baseline,f1,baseline_f1,f1_above_baseline,majority_pr_auc
+grouped seed 42,"instant (random forest, replaced)",0.5154,0.3908,0.1246,0.5839,0.5714,0.0124,0.1526
+grouped seed 42,history,0.9317,0.3908,0.5409,0.8663,0.5714,0.2949,0.1526
+grouped seed 42,rule (days in prior 30),0.7796,0.3908,0.3888,0.7975,0.5714,0.2261,0.1526
+grouped seed 42,"instant (XGBoost, shipped)",0.5074,0.3908,0.1166,0.5853,0.5714,0.0139,0.1526
+temporal,"instant (random forest, replaced)",0.4716,0.3778,0.0938,0.558,0.5537,0.0043,0.1832
+temporal,history,0.9427,0.3778,0.5649,0.881,0.5537,0.3273,0.1832
+temporal,rule (days in prior 30),0.84,0.3778,0.4622,0.8142,0.5537,0.2605,0.1832
+temporal,"instant (XGBoost, shipped)",0.4917,0.3778,0.1139,0.5696,0.5537,0.0159,0.1832
+leave out South Asia,"instant (random forest, replaced)",0.1631,0.1385,0.0245,0.2538,0.2468,0.0071,0.0297
+leave out South Asia,history,0.8587,0.1385,0.7202,0.7533,0.2468,0.5065,0.0297
+leave out South Asia,rule (days in prior 30),0.7007,0.1385,0.5622,0.7354,0.2468,0.4887,0.0297
+leave out Southeast Asia,"instant (random forest, replaced)",0.5101,0.4886,0.0215,0.6005,0.6418,-0.0413,0.2724
+leave out Southeast Asia,history,0.8561,0.4886,0.3675,0.7795,0.6418,0.1377,0.2724
+leave out Southeast Asia,rule (days in prior 30),0.7802,0.4886,0.2916,0.7861,0.6418,0.1443,0.2724
+leave out North and Central America,"instant (random forest, replaced)",0.3968,0.4075,-0.0106,0.5072,0.5863,-0.079,0.1611
+leave out North and Central America,history,0.8909,0.4075,0.4835,0.0116,0.5863,-0.5747,0.1611
+leave out North and Central America,rule (days in prior 30),0.7858,0.4075,0.3783,0.7912,0.5863,0.205,0.1611
+NOAA-20 cell disjoint,"instant (random forest, replaced)",0.3541,0.2635,0.0906,0.4494,0.437,0.0125,0.0701
+NOAA-20 cell disjoint,history,0.9006,0.2635,0.6371,0.8355,0.437,0.3985,0.0701
+NOAA-20 cell disjoint,rule (days in prior 30),0.7312,0.2635,0.4678,0.7855,0.437,0.3485,0.0701
+NOAA-20 cell disjoint,"instant (XGBoost, shipped)",0.3713,0.2635,0.1079,0.4547,0.437,0.0177,0.0701
+NOAA-21 cell disjoint,"instant (random forest, replaced)",0.3339,0.2607,0.0733,0.4397,0.4319,0.0078,0.0699
+NOAA-21 cell disjoint,history,0.9136,0.2607,0.6529,0.8519,0.4319,0.42,0.0699
+NOAA-21 cell disjoint,rule (days in prior 30),0.7264,0.2607,0.4657,0.7788,0.4319,0.3469,0.0699
+NOAA-21 cell disjoint,"instant (XGBoost, shipped)",0.3586,0.2607,0.0979,0.444,0.4319,0.0121,0.0699

@@ -548,6 +548,9 @@ def test_app_earth(tmp):
     for tier in (INSTANT_TIER, HISTORY_TIER):
         at.sidebar.radio[0].set_value(tier).run()
         assert not at.exception, (tier, at.exception)
+        note = any("mostly separates night detections" in c.value and "prefer the history tier" in c.value
+                   for c in at.caption)
+        assert note == (tier == INSTANT_TIER), (tier, note)           # only with the instant tier
         base = metric(at, "Detections in Earth")
         assert at.radio(key="earth_show_a").options == earth.SHOW
         got = {}

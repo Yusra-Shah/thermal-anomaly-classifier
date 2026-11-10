@@ -7,9 +7,9 @@ Share of NOAA-21 rows in cells unseen in Suomi NPP training: 0.446. Rule k: 3.
 history, Suomi NPP held out cells (reference): n 52354, static PR-AUC 0.932 (majority 0.153), precision 0.894, recall 0.840, F1 0.866
 history, cell disjoint: n 111145, static PR-AUC 0.914 (majority 0.070), precision 0.877, recall 0.828, F1 0.852
 history, not cell disjoint: n 138152, static PR-AUC 0.943 (majority 0.203), precision 0.896, recall 0.843, F1 0.869
-instant, Suomi NPP held out cells (reference): n 52354, static PR-AUC 0.515 (majority 0.153), precision 0.456, recall 0.810, F1 0.584
-instant, cell disjoint: n 111145, static PR-AUC 0.334 (majority 0.070), precision 0.301, recall 0.813, F1 0.440
-instant, not cell disjoint: n 138152, static PR-AUC 0.520 (majority 0.203), precision 0.473, recall 0.824, F1 0.601
+instant, Suomi NPP held out cells (reference): n 52354, static PR-AUC 0.507 (majority 0.153), precision 0.456, recall 0.816, F1 0.585
+instant, cell disjoint: n 111145, static PR-AUC 0.359 (majority 0.070), precision 0.305, recall 0.815, F1 0.444
+instant, not cell disjoint: n 138152, static PR-AUC 0.539 (majority 0.203), precision 0.478, recall 0.831, F1 0.607
 rule, Suomi NPP held out cells (reference): n 52354, static PR-AUC 0.780 (majority 0.153), precision 0.768, recall 0.829, F1 0.798
 rule, cell disjoint: n 111145, static PR-AUC 0.726 (majority 0.070), precision 0.758, recall 0.800, F1 0.779
 rule, not cell disjoint: n 138152, static PR-AUC 0.782 (majority 0.203), precision 0.767, recall 0.806, F1 0.786
