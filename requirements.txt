@@ -14,3 +14,9 @@ python-dotenv
 reverse_geocoder
 requests
 shapely
+
+# API and tests
+fastapi
+uvicorn
+pytest
+httpx

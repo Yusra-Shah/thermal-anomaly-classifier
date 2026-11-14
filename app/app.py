@@ -13,7 +13,7 @@ import streamlit.components.v1 as components
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src import earth, geo, live, uncertain  # noqa: E402
+from src import earth, geo, ingest, live, uncertain  # noqa: E402
 from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
 from src.features import add_features  # noqa: E402
@@ -227,6 +227,62 @@ def live_scored(region, stamp, _inst_bundle=None):
     return df, fetched, meta
 
 
+@st.cache_data(show_spinner="Reading the live store")
+def live_store_scored(region, stamp):
+    """Rows of one region from the incremental store (python -m src.ingest) with geography and the
+    column names of the snapshot path, plus the last ingest time and the bands. Cached by file stamp."""
+    df = pd.read_parquet(ingest.store_path(), filters=[("region", "==", region)])
+    last = pd.read_parquet(ingest.store_path(), columns=["ingest_time"])["ingest_time"].max()
+    rows = pd.read_parquet(ingest.store_path(), columns=["sensor"])["sensor"].value_counts().to_dict()
+    if df.empty:
+        return df, last, rows, None
+    df = df.rename(columns={"p_instant": "p_static_instant", "p_history": "p_static_history"})
+    df["days_seen_30"] = live.days_seen_30(df)
+    df = live.add_geo(df)
+    hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")
+    inst = joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
+    meta = {"bands": {"history": uncertain.bands_of(hist, "best_model_history_band.json"),
+                      "instant": uncertain.bands_of(inst, "best_model_headline_band.json")},
+            "inst_threshold": float(inst["threshold"])}
+    return df, last, rows, meta
+
+
+def store_source(region, live_tier, thr, col):
+    """Live source from the incremental store: same view as the snapshot path, without the fetch controls."""
+    path = ingest.store_path()
+    try:
+        df, last, rows, meta = live_store_scored(region, path.stat().st_mtime_ns)
+    except Exception as e:
+        st.error(f"Could not read the live store: {e}")
+        return None
+    total = ", ".join(f"{n} {int(rows.get(n, 0)):,}" for n in live.LIVE_SOURCES)
+    st.caption(f"Live store, last ingest {pd.Timestamp(last):%Y-%m-%d %H:%M} UTC. Rows in the store: {total}. "
+               "It is updated by python -m src.ingest, there is no fetch button here. Live results are unvalidated.")
+    if df.empty:
+        st.info("The live store has no detections for this region.")
+        return None
+    if thr is None:
+        thr = meta["inst_threshold"]
+        st.caption(f"Instant model, saved threshold {thr:.3f}")
+    if region not in live.TRAINED:
+        st.warning("This region was not part of the training data. Results here are unvalidated.")
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    latest = df["timestamp"].max()
+    age_h = (now - latest).total_seconds() / 3600
+    days = st.slider("Days shown", 1, ingest.KEEP_DAYS, 7, key="earth_days",
+                     help="Features always use the full stored history.")
+    view = df[df["acq_date"] > df["acq_date"].max() - pd.Timedelta(days=days)]
+    view = view.assign(p_static=view[col], pred_static=(view[col] >= thr).astype(int))
+    per = df["sensor"].value_counts()
+    st.caption(f"Latest detection {latest:%Y-%m-%d %H:%M} UTC, data age {age_h:.1f} h. "
+               f"Acquisition dates {df['acq_date'].min():%Y-%m-%d} to {df['acq_date'].max():%Y-%m-%d}. Rows in this "
+               "region: " + ", ".join(f"{n} {int(per.get(n, 0)):,}" for n in live.LIVE_SOURCES) + ".")
+    if age_h > 24:
+        st.warning(f"The newest detection in this region is {age_h:.0f} hours old. Run python -m src.ingest "
+                   "or check that the scheduled task is running.")
+    return view, region, False, meta["bands"]["history" if live_tier == HISTORY else "instant"]
+
+
 def instant_note():
     """One line on the instant tier, with the numbers of the day and night study when its report exists."""
     text = "The instant tier mostly separates night detections and is weak on its own, prefer the history tier."
@@ -272,6 +328,8 @@ def live_source(tier, bundle):
     else:
         thr, col = None, "p_static_instant"          # the saved threshold is read with the scores below
         st.caption(instant_note())
+    if ingest.store_path().exists():
+        return store_source(region, live_tier, thr, col)
     if key is None:
         c4.caption("Offline: no map key")
         offline = True

@@ -408,6 +408,42 @@ def test_app_live(tmp):
     print("earth live source test passed")
 
 
+def test_app_store(tmp):
+    """Live source from the incremental store: last ingest time, row counts, no fetch controls, unvalidated label."""
+    from src import ingest
+    from tests import fake_feed
+    live.LIVE_DIR = Path(tmp)
+    ingest.run_once("fake", fetch=fake_feed.fetch_factory(fake_feed.masters(10)), sleep=lambda s: None,
+                    log=lambda *a: None)
+    store = ingest.read_store()
+    at = None
+    gc.collect()
+    at = run_app(tmp, None, to_live)
+    assert not at.exception, at.exception
+    caps = [c.value for c in at.caption]
+    assert any("Live store, last ingest" in c and "Live results are unvalidated" in c for c in caps), caps
+    n20, n21 = (int((store["sensor"] == s).sum()) for s in ("NOAA-20", "NOAA-21"))
+    assert any(f"NOAA-20 {n20:,}" in c and f"NOAA-21 {n21:,}" in c and "Rows in the store" in c for c in caps), caps
+    assert any("Latest detection" in c and "Acquisition dates" in c for c in caps)
+    assert not any(b.key == "earth_refresh" for b in at.button)                 # no fetch button in store mode
+    assert not any(e.value == DEMO_NOTICE for e in at.error)
+    assert any("validated" in c.value for c in at.caption)
+    assert metric(at, "Detections in Earth") > 0 and metric(at, "Circles drawn") > 0
+    for tier in (INSTANT_TIER, HISTORY_TIER):
+        at.radio(key="earth_live_tier").set_value(tier).run()
+        assert not at.exception, at.exception
+        assert metric(at, "Detections in Earth") > 0
+    at.selectbox(key="earth_region").set_value("Europe (not in training)").run()
+    assert not at.exception and any("no detections for this region" in i.value for i in at.info)
+    # without the store the earlier behaviour returns
+    (Path(tmp) / "store.parquet").unlink()
+    at = None
+    gc.collect()
+    at = run_app(tmp, None, to_live)
+    assert not at.exception and any("No data for this region" in i.value for i in at.info)
+    print("earth live store test passed")
+
+
 def test_app_demo(tmp):
     """Demo snapshots built from the archive files, loaded offline in the Earth tab."""
     import time
@@ -639,7 +675,7 @@ def suite_unit(tmp):
     test_earth_select()
 
 
-SUITES = {"unit": suite_unit, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
+SUITES = {"unit": suite_unit, "app_store": test_app_store, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
           "app_earth": test_app_earth}
 
 

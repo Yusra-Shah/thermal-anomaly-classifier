@@ -80,6 +80,18 @@ Day and night. `python -m src.daynight` (stages tables, xgb, transfer, ship) tes
 
 Why the instant tier flags so many live detections as static. `python -m src.nrt_vs_sp --download` and `python -m src.nrt_analysis` compare NOAA-21 products with the same boxes and country cut (results in `reports/nrt_vs_sp.csv`, files in `data/noaa20/nrtcheck/`). For 2026-06-01 to 2026-07-31 the `VIIRS_NOAA21_NRT` and `VIIRS_NOAA21_SP` downloads hold the same detections: same row counts per region, every detection matched within 0.006 degrees and 30 minutes, and bright_ti4, bright_ti5, bright_diff, frp, scan, track, confidence and day or night identical on all matched pairs, so both products give the same instant and history shares. The confidence column uses the same categories (l, n, h) and the same mapping to 0, 1 and 2 in both. So no product difference was found, and no fix was needed. What moves the instant share is the day or night mix: the instant tier flags almost no daytime detections as static (0.1 to 0.4 percent) and 60 to 90 percent of night ones, in the archive too (25 percent flagged overall at a night share of 31 percent, while NASA's static share there is 14 percent). Live Southeast Asia has a night share of 51 percent against 13 percent in 2025-09-11 to 2025-11-09 SP data, and its instant share is 41.7 percent against 11.4 percent; at the SP night mix the live share would be 10.7 percent. The same standardisation brings South Asia to 9.2 percent against 9.4 percent and North and Central America to 43.6 percent against 43.1 percent, so the high shares are a property of the instant model plus the season and year, not of near real time data. Limits: SP data for August to November 2026 does not exist yet, so the live feed itself could not be compared with SP for those weeks, and why 2026 Southeast Asia has so many night detections was not investigated. Treat the instant tier's static label as a night detection flag, and prefer the history tier on live data. The instant shares in that paragraph and in `reports/nrt_vs_sp.csv` and `reports/live_check.csv` come from the random forest instant tier that has since been replaced.
 
+## Live store and API
+
+`python -m src.ingest --once` fetches the latest NOAA-20 and NOAA-21 near real time detections for the three trained regions (day ranges of 1 to 5, a short wait between calls and a budget below 5000 transactions per 10 minutes), scores the new rows with the saved models, calibrators and bands, and merges them into one store, `data/live/store.parquet` (git ignores `data/live`). The store is written atomically, rows are unique on sensor, latitude, longitude, acq_date and acq_time so a second run adds nothing, and only the last 90 days are kept for the history features. It holds the features, both scores, the calibrated probabilities, the labels, the default and strict band calls and the ingest time. The command prints only counts (rows fetched, added and kept per sensor). A failed call prints only the exception class and the HTTP status, never a URL, a header, a traceback or the key, which is read from `FIRMS_MAP_KEY` (environment or `.env`). `python -m src.ingest --loop --every-minutes 180` repeats it, and `python -m src.ingest --import-live` is a one off that takes the rolling stores of the older fetch code into the store. To run it every few hours on Windows, create a Windows Task Scheduler task that runs `.venv\Scripts\python.exe -m src.ingest --once` from the project folder, repeating every 3 hours. When the store exists, the Live source of the Earth tab reads it and shows the last ingest time and the rows per sensor, and it falls back to the old snapshot behaviour when the store is missing.
+
+Start the API with `uvicorn api.main:app` (docs at `/docs`). `GET /health` gives the status, the last ingest time and the row count, `GET /model` the model files, thresholds, band settings and the headline metrics from the existing reports, `POST /predict` up to 5000 detections (validated, one answer each with the label, the calibrated probability, the default and strict band calls and the tier used), and `GET /live/latest` the newest scored rows (parameters `hours`, `sensor`, an optional box, at most 20000 rows). `/predict` uses the history tier when history fields are supplied or when the cell exists in the store (the history of its latest stored detection), and the instant tier otherwise, and each answer says which.
+
+    curl http://127.0.0.1:8000/health
+    curl "http://127.0.0.1:8000/live/latest?hours=24&sensor=NOAA-20&min_lat=24&min_lon=61&max_lat=36&max_lon=76&limit=100"
+    curl -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" -d "{\"detections\": [{\"latitude\": 28.6, \"longitude\": 70.1, \"acq_date\": \"2026-11-01\", \"acq_time\": 742, \"bright_ti4\": 330.5, \"bright_ti5\": 295.0, \"frp\": 3.2, \"scan\": 0.45, \"track\": 0.5, \"confidence\": \"n\", \"daynight\": \"N\"}]}"
+
+The models are not retrained from live data: live data has no type flag, so there is no label to learn from. Live results are unvalidated. Tests: `python -m pytest tests/test_ingest.py -q` and `python -m pytest tests/test_api.py -q`, one per process.
+
 ## Run
 
     python -m venv .venv
@@ -100,13 +112,16 @@ Why the instant tier flags so many live detections as static. `python -m src.nrt
     python -m src.nrt_score                     # score data/nrt/SUOMI_VIIRS_C2_Global_7d.csv
     python -m tests.test_history                # leakage test
     python -m tests.test_live app_earth         # live and Earth tests, no network, one suite per process
-                                                # suites: unit, app_live, app_demo, app_geo, app_earth
+                                                # suites: unit, app_store, app_live, app_demo, app_geo, app_earth
+    python -m src.ingest --once                 # live store, needs the key
+    uvicorn api.main:app                        # prediction API
     streamlit run app/app.py
 
 ## Structure
 
     src/       data loading, labelling, features, history features, models, evaluation
     app/       Streamlit app (map, upload, results, Earth)
+    api/       FastAPI prediction API (health, model, predict, live latest)
     tests/     leakage test for the history features, synthetic data generator
     reports/   tables, figures and summaries written by the scripts
     models/    saved models (not tracked)
