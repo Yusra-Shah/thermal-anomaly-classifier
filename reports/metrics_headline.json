@@ -1,13 +1,14 @@
 {
-  "rows": 257841,
-  "cells": 119139,
+  "rows": 2349116,
+  "cells": 1157958,
   "days": 181,
   "date_min": "2025-01-01",
   "date_max": "2025-06-30",
-  "static_share": 0.1432,
+  "static_share": 0.0425,
   "static_min_days": 16,
   "window": "month",
   "label": "type",
+  "regions": 8,
   "features": [
     "bright_ti4",
     "bright_ti5",
@@ -20,10 +21,10 @@
     "confidence_ord",
     "is_night"
   ],
-  "train_rows": 205487,
-  "test_rows": 52354,
-  "test_static_share": 0.1526,
-  "best_model": "Random Forest",
+  "train_rows": 1879089,
+  "test_rows": 470027,
+  "test_static_share": 0.0423,
+  "best_model": "XGBoost, 100 trees",
   "results": {
     "Majority baseline": {
       "threshold": 0.5,
@@ -31,46 +32,21 @@
       "recall_static": 0.0,
       "f1_static": 0.0,
       "recall_fire": 1.0,
-      "precision_fire": 0.8474,
-      "f1_fire": 0.9174,
-      "pr_auc_static": 0.1526,
+      "precision_fire": 0.9577,
+      "f1_fire": 0.9784,
+      "pr_auc_static": 0.0423,
       "roc_auc": 0.5
     },
-    "Logistic Regression": {
-      "threshold": 0.713,
-      "precision_static": 0.4362,
-      "recall_static": 0.85,
-      "f1_static": 0.5765,
-      "recall_fire": 0.8022,
-      "precision_fire": 0.9674,
-      "f1_fire": 0.8771,
-      "pr_auc_static": 0.4169,
-      "roc_auc": 0.85,
-      "cv_pr_auc_static": 0.387
-    },
-    "Random Forest": {
-      "threshold": 0.3416,
-      "precision_static": 0.4565,
-      "recall_static": 0.8098,
-      "f1_static": 0.5839,
-      "recall_fire": 0.8264,
-      "precision_fire": 0.9602,
-      "f1_fire": 0.8883,
-      "pr_auc_static": 0.5154,
-      "roc_auc": 0.8756,
-      "cv_pr_auc_static": 0.5211
-    },
     "XGBoost": {
-      "threshold": 0.6991,
-      "precision_static": 0.4617,
-      "recall_static": 0.8056,
-      "f1_static": 0.587,
-      "recall_fire": 0.831,
-      "precision_fire": 0.9596,
-      "f1_fire": 0.8906,
-      "pr_auc_static": 0.5152,
-      "roc_auc": 0.8752,
-      "cv_pr_auc_static": 0.5246
+      "threshold": 0.8185,
+      "precision_static": 0.2322,
+      "recall_static": 0.5748,
+      "f1_static": 0.3308,
+      "recall_fire": 0.9161,
+      "precision_fire": 0.9799,
+      "f1_fire": 0.9469,
+      "pr_auc_static": 0.2443,
+      "roc_auc": 0.8826
     }
   }
 }

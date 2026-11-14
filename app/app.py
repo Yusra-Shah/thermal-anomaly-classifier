@@ -32,7 +32,7 @@ HISTORY = "With history (past detections)"
 OPERATING_POINTS = ["F1 optimal", "precision >= 0.90", "precision >= 0.95"]
 
 
-@st.cache_data(max_entries=1)           # one tier's scored table at a time
+@st.cache_resource(max_entries=1)       # one tier's scored table at a time, kept as it is (no copy per run)
 def load_scored(name):
     p = PROC_DIR / name
     if not p.exists():
@@ -489,7 +489,39 @@ with tab_live:
         except Exception as e:  # show a readable message in the demo
             st.error(f"Could not process this file: {e}")
 
+def world_section():
+    """All regions: the files, the five grouped splits, the temporal split and every region held out."""
+    wh, wi = read_csv("world_history.csv"), read_csv("world_instant.csv")
+    if wh is None:
+        return
+    st.subheader("All regions, January to June 2025")
+    inv = read_csv("world_inventory.csv")
+    if inv is not None:
+        st.dataframe(inv[["region", "country", "rows_kept", "static_share"]].round(4), width="stretch", hide_index=True)
+    w = pd.concat([wh, wi] if wi is not None else [wh], ignore_index=True)
+    w["tier"] = w["tier"].str.replace(r"^rule .*$", "rule (distinct days in prior 30)", regex=True)
+    cols = ["pr_auc", "f1opt_precision", "f1opt_recall", "f1opt_f1"]
+    names = ["PR-AUC", "Precision", "Recall", "F1"]
+    seeds = w[w["split"].str.startswith("grouped")]
+    g = seeds.groupby("tier", sort=False)[cols]
+    table = g.mean().round(3).astype(str) + " (" + g.std().round(3).astype(str) + ")"
+    st.write("Five grouped splits by grid cell, mean (std), all regions together.")
+    st.dataframe(table.rename(columns=dict(zip(cols, names))))
+    st.write("Temporal split (train before 2025-05-01).")
+    t = w[w["split"] == "temporal"].set_index("tier")[["n", "static_share", "majority_pr_auc"] + cols]
+    st.dataframe(t.round(3).rename(columns=dict(zip(cols, names))))
+    reg = read_csv("world_regions.csv")
+    if reg is not None:
+        st.write("Leave one region out: train on all other regions, test on the held out one.")
+        st.dataframe(reg.round(3), width="stretch", hide_index=True)
+    st.caption("Same code and settings as before: instant and history XGBoost, 100 trees, thresholds from out of "
+               "fold training scores. January to June misses the main fire season in places such as Brazil, so "
+               "the static share and the results of a region describe these months only. NASA's flag is the "
+               "label, not independent truth. DR Congo has almost no static detections, so its scores are noisy.")
+
+
 with tab_metrics:
+    world_section()
     mpath = REPORT_DIR / f"metrics_{TAG}.json"
     if mpath.exists():
         m = json.loads(mpath.read_text())

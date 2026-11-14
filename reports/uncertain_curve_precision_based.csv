@@ -1,316 +1,631 @@
 tier,split,target,t_low,t_high,overlap,coverage,decided_accuracy,static_precision_decided,fire_npv_decided
-history,grouped seed 42,0.6,0.9988,0.108,True,1.0,0.9032,0.6129,0.9984
-history,grouped seed 42,0.62,0.9988,0.1304,True,1.0,0.9104,0.6315,0.9982
-history,grouped seed 42,0.64,0.9988,0.1586,True,1.0,0.9169,0.6495,0.9979
-history,grouped seed 42,0.66,0.9988,0.1936,True,1.0,0.9243,0.6712,0.9976
-history,grouped seed 42,0.68,0.9988,0.2374,True,1.0,0.9308,0.6917,0.9972
-history,grouped seed 42,0.7,0.9988,0.2855,True,1.0,0.9364,0.7108,0.9968
-history,grouped seed 42,0.72,0.9988,0.3417,True,1.0,0.9414,0.7293,0.9961
-history,grouped seed 42,0.74,0.9988,0.4114,True,1.0,0.9461,0.7476,0.9954
-history,grouped seed 42,0.76,0.9988,0.4912,True,1.0,0.9508,0.7687,0.9942
-history,grouped seed 42,0.78,0.9988,0.5859,True,1.0,0.9558,0.7929,0.9928
-history,grouped seed 42,0.8,0.9988,0.6684,True,1.0,0.9593,0.813,0.9911
-history,grouped seed 42,0.82,0.9988,0.7408,True,1.0,0.961,0.8295,0.9883
-history,grouped seed 42,0.84,0.9988,0.8,True,1.0,0.9627,0.8484,0.9854
-history,grouped seed 42,0.86,0.9981,0.8457,True,1.0,0.9632,0.8654,0.9817
-history,grouped seed 42,0.88,0.9944,0.8844,True,1.0,0.962,0.8795,0.9766
-history,grouped seed 42,0.9,0.9898,0.914,True,1.0,0.9605,0.8944,0.9715
-history,grouped seed 42,0.92,0.9826,0.9384,True,1.0,0.9555,0.9067,0.963
-history,grouped seed 42,0.94,0.9706,0.9619,True,1.0,0.9438,0.9237,0.9464
-history,grouped seed 42,0.96,0.9423,0.9816,False,0.95,0.9587,0.9369,0.9607
-history,grouped seed 42,0.98,0.8511,0.996,False,0.8553,0.9814,0.997,0.9811
-history,grouped seed 42,0.99,0.6749,0.997,False,0.8301,0.9911,1.0,0.991
-history,temporal,0.6,0.9985,0.1808,True,1.0,0.9171,0.6906,0.9978
-history,temporal,0.62,0.9985,0.2124,True,1.0,0.9212,0.7021,0.9976
-history,temporal,0.64,0.9985,0.2502,True,1.0,0.9253,0.7137,0.9974
-history,temporal,0.66,0.9985,0.2955,True,1.0,0.9295,0.7261,0.997
-history,temporal,0.68,0.9985,0.3463,True,1.0,0.933,0.7369,0.9966
-history,temporal,0.7,0.9985,0.4019,True,1.0,0.9367,0.749,0.9962
-history,temporal,0.72,0.9985,0.4627,True,1.0,0.9401,0.7607,0.9957
-history,temporal,0.74,0.9985,0.5303,True,1.0,0.9433,0.7721,0.9951
-history,temporal,0.76,0.9985,0.6019,True,1.0,0.9463,0.7842,0.9942
-history,temporal,0.78,0.9985,0.6741,True,1.0,0.9492,0.7967,0.9929
-history,temporal,0.8,0.9985,0.7449,True,1.0,0.9519,0.8111,0.9909
-history,temporal,0.82,0.9985,0.8017,True,1.0,0.9544,0.8254,0.9889
-history,temporal,0.84,0.9985,0.8413,True,1.0,0.9564,0.8394,0.9866
-history,temporal,0.86,0.9985,0.8793,True,1.0,0.9575,0.8547,0.983
-history,temporal,0.88,0.9971,0.9125,True,1.0,0.9578,0.8723,0.9777
-history,temporal,0.9,0.9925,0.9383,True,1.0,0.9569,0.8911,0.9712
-history,temporal,0.92,0.9867,0.9582,True,1.0,0.9522,0.9081,0.961
-history,temporal,0.94,0.9764,0.9734,True,1.0,0.943,0.9241,0.9463
-history,temporal,0.96,0.9529,0.9896,False,0.9331,0.9635,0.955,0.9645
-history,temporal,0.98,0.8635,,False,0.7981,0.9848,,0.9848
-history,temporal,0.99,0.6516,,False,0.7752,0.9934,,0.9934
-history,leave out South Asia,0.6,0.9986,0.085,True,1.0,0.9,0.2288,0.9999
-history,leave out South Asia,0.62,0.9986,0.1045,True,1.0,0.9121,0.2524,0.9999
-history,leave out South Asia,0.64,0.9986,0.1282,True,1.0,0.9233,0.2786,0.9998
-history,leave out South Asia,0.66,0.9986,0.1597,True,1.0,0.9347,0.312,0.9998
-history,leave out South Asia,0.68,0.9986,0.1979,True,1.0,0.946,0.3546,0.9998
-history,leave out South Asia,0.7,0.9986,0.2438,True,1.0,0.9557,0.4012,0.9998
-history,leave out South Asia,0.72,0.9986,0.2976,True,1.0,0.9645,0.4557,0.9997
-history,leave out South Asia,0.74,0.9986,0.3594,True,1.0,0.9729,0.5235,0.9997
-history,leave out South Asia,0.76,0.9986,0.4272,True,1.0,0.9789,0.5866,0.9995
-history,leave out South Asia,0.78,0.9986,0.509,True,1.0,0.9833,0.6454,0.9991
-history,leave out South Asia,0.8,0.9986,0.5971,True,1.0,0.9855,0.6823,0.9988
-history,leave out South Asia,0.82,0.9986,0.6782,True,1.0,0.9865,0.7072,0.998
-history,leave out South Asia,0.84,0.9958,0.746,True,1.0,0.9873,0.7304,0.9972
-history,leave out South Asia,0.86,0.9914,0.8044,True,1.0,0.9873,0.7495,0.9956
-history,leave out South Asia,0.88,0.9869,0.8547,True,1.0,0.987,0.7765,0.9936
-history,leave out South Asia,0.9,0.9805,0.8896,True,1.0,0.9859,0.7858,0.9915
-history,leave out South Asia,0.92,0.9709,0.9264,True,1.0,0.9845,0.8251,0.9881
-history,leave out South Asia,0.94,0.9539,0.9556,False,0.9995,0.9827,0.8898,0.9841
-history,leave out South Asia,0.96,0.9179,0.9778,False,0.9846,0.9889,0.9634,0.9891
-history,leave out South Asia,0.98,0.7982,0.9913,False,0.9679,0.9959,0.9825,0.9959
-history,leave out South Asia,0.99,0.583,0.9941,False,0.9583,0.9988,0.9677,0.9988
-history,leave out Southeast Asia,0.6,0.999,0.1059,True,1.0,0.8681,0.6778,0.9925
-history,leave out Southeast Asia,0.62,0.999,0.1285,True,1.0,0.8727,0.6861,0.9921
-history,leave out Southeast Asia,0.64,0.999,0.1557,True,1.0,0.8762,0.6931,0.9907
-history,leave out Southeast Asia,0.66,0.999,0.1867,True,1.0,0.8799,0.701,0.989
-history,leave out Southeast Asia,0.68,0.999,0.2258,True,1.0,0.8825,0.7069,0.9876
-history,leave out Southeast Asia,0.7,0.999,0.2726,True,1.0,0.8865,0.7157,0.9861
-history,leave out Southeast Asia,0.72,0.999,0.3282,True,1.0,0.8902,0.7249,0.9838
-history,leave out Southeast Asia,0.74,0.999,0.3921,True,1.0,0.8931,0.7337,0.9806
-history,leave out Southeast Asia,0.76,0.999,0.4625,True,1.0,0.8955,0.7421,0.9769
-history,leave out Southeast Asia,0.78,0.999,0.5404,True,1.0,0.8948,0.747,0.9705
-history,leave out Southeast Asia,0.8,0.999,0.6267,True,1.0,0.8977,0.76,0.9646
-history,leave out Southeast Asia,0.82,0.999,0.7069,True,1.0,0.8959,0.7699,0.953
-history,leave out Southeast Asia,0.84,0.999,0.7723,True,1.0,0.8938,0.7791,0.9424
-history,leave out Southeast Asia,0.86,0.999,0.8285,True,1.0,0.893,0.7927,0.9325
-history,leave out Southeast Asia,0.88,0.9957,0.8709,True,1.0,0.89,0.8054,0.9206
-history,leave out Southeast Asia,0.9,0.9921,0.9076,True,1.0,0.8855,0.8199,0.907
-history,leave out Southeast Asia,0.92,0.9864,0.936,True,1.0,0.874,0.8377,0.8841
-history,leave out Southeast Asia,0.94,0.9757,0.9609,True,1.0,0.8523,0.85,0.8528
-history,leave out Southeast Asia,0.96,0.9534,0.9831,False,0.9142,0.8649,0.8702,0.8642
-history,leave out Southeast Asia,0.98,0.88,0.9942,False,0.7748,0.9188,0.945,0.9175
-history,leave out Southeast Asia,0.99,0.7246,0.9964,False,0.6973,0.9504,0.9877,0.9501
-history,leave out North and Central America,0.6,0.9986,0.1148,True,1.0,0.8983,0.6154,0.9963
-history,leave out North and Central America,0.62,0.9986,0.1427,True,1.0,0.9042,0.6301,0.9959
-history,leave out North and Central America,0.64,0.9986,0.1823,True,1.0,0.91,0.6454,0.9956
-history,leave out North and Central America,0.66,0.9986,0.2348,True,1.0,0.9162,0.6627,0.9951
-history,leave out North and Central America,0.68,0.9986,0.2891,True,1.0,0.9215,0.6787,0.9946
-history,leave out North and Central America,0.7,0.9986,0.3736,True,1.0,0.9281,0.6996,0.9938
-history,leave out North and Central America,0.72,0.9986,0.4691,True,1.0,0.9337,0.7192,0.9928
-history,leave out North and Central America,0.74,0.9986,0.6211,True,1.0,0.9412,0.7489,0.9909
-history,leave out North and Central America,0.76,0.9986,0.7571,True,1.0,0.9467,0.7774,0.9876
-history,leave out North and Central America,0.78,0.9986,0.8515,True,1.0,0.9501,0.8094,0.981
-history,leave out North and Central America,0.8,0.9986,0.9105,True,1.0,0.9508,0.8481,0.9704
-history,leave out North and Central America,0.82,0.9986,0.9494,True,1.0,0.9443,0.8862,0.9535
-history,leave out North and Central America,0.84,0.9986,0.9697,True,1.0,0.9307,0.9097,0.9333
-history,leave out North and Central America,0.86,0.9986,0.9837,True,1.0,0.8996,0.9245,0.8977
-history,leave out North and Central America,0.88,0.9986,0.9885,True,1.0,0.8822,0.9258,0.8799
-history,leave out North and Central America,0.9,0.9986,,False,1.0,0.8389,,0.8389
-history,leave out North and Central America,0.92,0.9949,,False,0.9829,0.8524,,0.8524
-history,leave out North and Central America,0.94,0.9852,,False,0.9347,0.8922,,0.8922
-history,leave out North and Central America,0.96,0.9716,,False,0.8916,0.9302,,0.9302
-history,leave out North and Central America,0.98,0.9215,,False,0.8448,0.9668,,0.9668
-history,leave out North and Central America,0.99,0.8258,,False,0.8148,0.9836,,0.9836
-instant,grouped seed 42,0.6,0.9492,0.8523,True,1.0,0.8551,0.569,0.8719
-instant,grouped seed 42,0.62,0.9492,0.8637,True,1.0,0.8543,0.5805,0.8666
-instant,grouped seed 42,0.64,0.9492,0.8753,True,1.0,0.8541,0.604,0.8625
-instant,grouped seed 42,0.66,0.9492,0.8845,True,1.0,0.8536,0.62,0.8598
-instant,grouped seed 42,0.68,0.9492,0.8964,True,1.0,0.8527,0.6474,0.8565
-instant,grouped seed 42,0.7,0.9492,0.9043,True,1.0,0.8516,0.6612,0.8541
-instant,grouped seed 42,0.72,0.9492,0.9127,True,1.0,0.8502,0.6674,0.8517
-instant,grouped seed 42,0.74,0.9492,0.9173,True,1.0,0.8495,0.6899,0.8504
-instant,grouped seed 42,0.76,0.9492,0.922,True,1.0,0.8487,0.6818,0.8492
-instant,grouped seed 42,0.78,0.9492,0.9263,True,1.0,0.8482,0.6783,0.8486
-instant,grouped seed 42,0.8,0.9492,0.9275,True,1.0,0.8483,0.7396,0.8485
-instant,grouped seed 42,0.82,0.9492,0.9295,True,1.0,0.8481,0.8,0.8482
-instant,grouped seed 42,0.84,0.9492,0.9316,True,1.0,0.8478,0.7568,0.8479
-instant,grouped seed 42,0.86,0.9306,,False,0.9991,0.848,,0.848
-instant,grouped seed 42,0.88,0.8654,,False,0.9587,0.8661,,0.8661
-instant,grouped seed 42,0.9,0.8326,,False,0.9092,0.8877,,0.8877
-instant,grouped seed 42,0.92,0.8111,,False,0.8579,0.9086,,0.9086
-instant,grouped seed 42,0.94,0.7863,,False,0.8051,0.9287,,0.9287
-instant,grouped seed 42,0.96,0.7401,,False,0.7472,0.9534,,0.9534
-instant,grouped seed 42,0.98,0.2495,,False,0.6533,0.976,,0.976
-instant,grouped seed 42,0.99,0.1152,,False,0.3611,0.9839,,0.9839
-instant,temporal,0.6,0.963,0.871,True,1.0,0.8242,0.5373,0.8556
-instant,temporal,0.62,0.963,0.877,True,1.0,0.8253,0.5485,0.8518
-instant,temporal,0.64,0.963,0.8835,True,1.0,0.8264,0.5617,0.8487
-instant,temporal,0.66,0.963,0.8918,True,1.0,0.8269,0.5764,0.8446
-instant,temporal,0.68,0.963,0.8973,True,1.0,0.8266,0.5827,0.8419
-instant,temporal,0.7,0.963,0.9045,True,1.0,0.8259,0.5904,0.8384
-instant,temporal,0.72,0.963,0.9182,True,1.0,0.8238,0.6025,0.8315
-instant,temporal,0.74,0.963,0.9254,True,1.0,0.8223,0.607,0.8279
-instant,temporal,0.76,0.963,0.9349,True,1.0,0.821,0.6381,0.8239
-instant,temporal,0.78,0.963,0.9405,True,1.0,0.8196,0.6525,0.8211
-instant,temporal,0.8,0.963,0.9433,True,1.0,0.8192,0.6619,0.8203
-instant,temporal,0.82,0.963,,False,1.0,0.8168,,0.8168
-instant,temporal,0.84,0.963,,False,1.0,0.8168,,0.8168
-instant,temporal,0.86,0.963,,False,1.0,0.8168,,0.8168
-instant,temporal,0.88,0.9347,,False,0.9847,0.8239,,0.8239
-instant,temporal,0.9,0.8747,,False,0.9085,0.8533,,0.8533
-instant,temporal,0.92,0.8478,,False,0.8479,0.8738,,0.8738
-instant,temporal,0.94,0.8216,,False,0.7776,0.9007,,0.9007
-instant,temporal,0.96,0.7871,,False,0.7132,0.9272,,0.9272
-instant,temporal,0.98,0.6022,,False,0.6206,0.9619,,0.9619
-instant,temporal,0.99,0.1251,,False,0.3561,0.977,,0.977
-instant,leave out South Asia,0.6,0.971,0.818,True,1.0,0.909,0.1749,0.9854
-instant,leave out South Asia,0.62,0.971,0.8265,True,1.0,0.9152,0.1802,0.9844
-instant,leave out South Asia,0.64,0.971,0.8368,True,1.0,0.9205,0.1821,0.9832
-instant,leave out South Asia,0.66,0.971,0.8461,True,1.0,0.9253,0.1871,0.9824
-instant,leave out South Asia,0.68,0.971,0.855,True,1.0,0.9293,0.1889,0.9815
-instant,leave out South Asia,0.7,0.971,0.8656,True,1.0,0.9339,0.1935,0.9806
-instant,leave out South Asia,0.72,0.971,0.8776,True,1.0,0.9394,0.1966,0.9792
-instant,leave out South Asia,0.74,0.971,0.8878,True,1.0,0.944,0.1998,0.978
-instant,leave out South Asia,0.76,0.971,0.8942,True,1.0,0.9468,0.2005,0.9772
-instant,leave out South Asia,0.78,0.971,0.9026,True,1.0,0.9504,0.2079,0.9765
-instant,leave out South Asia,0.8,0.971,0.9131,True,1.0,0.9534,0.2115,0.9757
-instant,leave out South Asia,0.82,0.971,0.9199,True,1.0,0.9549,0.2095,0.9751
-instant,leave out South Asia,0.84,0.9137,0.9304,False,0.9921,0.9592,0.202,0.9757
-instant,leave out South Asia,0.86,0.8527,0.9423,False,0.9473,0.9697,0.2058,0.9818
-instant,leave out South Asia,0.88,0.8208,0.9549,False,0.9152,0.9797,0.2347,0.9851
-instant,leave out South Asia,0.9,0.8002,0.9557,False,0.8932,0.9827,0.2357,0.988
-instant,leave out South Asia,0.92,0.779,,False,0.8663,0.9906,,0.9906
-instant,leave out South Asia,0.94,0.7487,,False,0.8455,0.9933,,0.9933
-instant,leave out South Asia,0.96,0.679,,False,0.8219,0.9966,,0.9966
-instant,leave out South Asia,0.98,0.1844,,False,0.4214,0.9994,,0.9994
-instant,leave out South Asia,0.99,0.0987,,False,0.1631,0.9997,,0.9997
-instant,leave out Southeast Asia,0.6,0.9456,0.8612,True,1.0,0.7299,0.5194,0.743
-instant,leave out Southeast Asia,0.62,0.9456,0.8709,True,1.0,0.7297,0.5232,0.7397
-instant,leave out Southeast Asia,0.64,0.9456,0.8833,True,1.0,0.7287,0.5157,0.7362
-instant,leave out Southeast Asia,0.66,0.9456,0.8918,True,1.0,0.7282,0.5118,0.7335
-instant,leave out Southeast Asia,0.68,0.9456,0.9011,True,1.0,0.7275,0.4978,0.7313
-instant,leave out Southeast Asia,0.7,0.9456,0.9101,True,1.0,0.728,0.5242,0.7298
-instant,leave out Southeast Asia,0.72,0.9456,0.9215,True,1.0,0.7272,0.4423,0.7282
-instant,leave out Southeast Asia,0.74,0.9456,0.9274,True,1.0,0.7269,0.2857,0.7276
-instant,leave out Southeast Asia,0.76,0.9456,0.9293,True,1.0,0.7271,0.2941,0.7276
-instant,leave out Southeast Asia,0.78,0.9456,0.935,True,1.0,0.7274,0.3333,0.7276
-instant,leave out Southeast Asia,0.8,0.9456,0.9367,True,1.0,0.7275,0.0,0.7276
-instant,leave out Southeast Asia,0.82,0.9456,,False,1.0,0.7276,,0.7276
-instant,leave out Southeast Asia,0.84,0.9456,,False,1.0,0.7276,,0.7276
-instant,leave out Southeast Asia,0.86,0.9456,,False,1.0,0.7276,,0.7276
-instant,leave out Southeast Asia,0.88,0.883,,False,0.9657,0.7362,,0.7362
-instant,leave out Southeast Asia,0.9,0.8411,,False,0.9042,0.755,,0.755
-instant,leave out Southeast Asia,0.92,0.8168,,False,0.8387,0.7827,,0.7827
-instant,leave out Southeast Asia,0.94,0.7939,,False,0.7641,0.8199,,0.8199
-instant,leave out Southeast Asia,0.96,0.7589,,False,0.7119,0.8476,,0.8476
-instant,leave out Southeast Asia,0.98,0.5077,,False,0.6446,0.8873,,0.8873
-instant,leave out Southeast Asia,0.99,0.1199,,False,0.2934,0.8987,,0.8987
-instant,leave out North and Central America,0.6,0.9664,0.9041,True,1.0,0.8368,0.4351,0.8435
-instant,leave out North and Central America,0.62,0.9664,0.9062,True,1.0,0.837,0.4343,0.843
-instant,leave out North and Central America,0.64,0.9664,0.9093,True,1.0,0.8373,0.4299,0.8421
-instant,leave out North and Central America,0.66,0.9664,0.9127,True,1.0,0.8376,0.4296,0.8415
-instant,leave out North and Central America,0.68,0.9664,0.9151,True,1.0,0.8377,0.4262,0.841
-instant,leave out North and Central America,0.7,0.9664,0.9187,True,1.0,0.8381,0.4325,0.8406
-instant,leave out North and Central America,0.72,0.9664,0.9218,True,1.0,0.8383,0.4456,0.8404
-instant,leave out North and Central America,0.74,0.9664,0.9258,True,1.0,0.8385,0.4532,0.8402
-instant,leave out North and Central America,0.76,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.78,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.8,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.82,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.84,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.86,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.88,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.9,0.9664,,False,1.0,0.8389,,0.8389
-instant,leave out North and Central America,0.92,0.9072,,False,0.9862,0.8427,,0.8427
-instant,leave out North and Central America,0.94,0.8562,,False,0.8965,0.873,,0.873
-instant,leave out North and Central America,0.96,0.7876,,False,0.7695,0.9246,,0.9246
-instant,leave out North and Central America,0.98,0.5648,,False,0.6331,0.9695,,0.9695
-instant,leave out North and Central America,0.99,0.3144,,False,0.4856,0.974,,0.974
-rule,grouped seed 42,0.6,30.0,2.0,True,1.0,0.9211,0.6878,0.978
-rule,grouped seed 42,0.62,30.0,2.0,True,1.0,0.9211,0.6878,0.978
-rule,grouped seed 42,0.64,30.0,2.0,True,1.0,0.9211,0.6878,0.978
-rule,grouped seed 42,0.66,30.0,2.0,True,1.0,0.9211,0.6878,0.978
-rule,grouped seed 42,0.68,30.0,2.0,True,1.0,0.9211,0.6878,0.978
-rule,grouped seed 42,0.7,30.0,3.0,True,1.0,0.9358,0.7681,0.9688
-rule,grouped seed 42,0.72,30.0,3.0,True,1.0,0.9358,0.7681,0.9688
-rule,grouped seed 42,0.74,30.0,3.0,True,1.0,0.9358,0.7681,0.9688
-rule,grouped seed 42,0.76,30.0,3.0,True,1.0,0.9358,0.7681,0.9688
-rule,grouped seed 42,0.78,30.0,4.0,True,1.0,0.9373,0.8066,0.9598
-rule,grouped seed 42,0.8,30.0,4.0,True,1.0,0.9373,0.8066,0.9598
-rule,grouped seed 42,0.82,30.0,5.0,True,1.0,0.9357,0.8336,0.9512
-rule,grouped seed 42,0.84,30.0,6.0,True,1.0,0.9314,0.8526,0.9421
-rule,grouped seed 42,0.86,24.0,7.0,True,1.0,0.9261,0.8629,0.9338
-rule,grouped seed 42,0.88,14.0,8.0,True,1.0,0.9194,0.8643,0.9254
-rule,grouped seed 42,0.9,10.0,12.0,False,0.9898,0.8988,0.8726,0.9005
-rule,grouped seed 42,0.92,7.0,,False,0.9013,0.9254,,0.9254
-rule,grouped seed 42,0.94,5.0,,False,0.8809,0.9421,,0.9421
-rule,grouped seed 42,0.96,2.0,,False,0.8353,0.9688,,0.9688
-rule,grouped seed 42,0.98,0.0,,False,0.7089,0.9876,,0.9876
-rule,grouped seed 42,0.99,,,False,0.0,,,
-rule,temporal,0.6,30.0,2.0,True,1.0,0.9034,0.6735,0.9798
-rule,temporal,0.62,30.0,2.0,True,1.0,0.9034,0.6735,0.9798
-rule,temporal,0.64,30.0,2.0,True,1.0,0.9034,0.6735,0.9798
-rule,temporal,0.66,30.0,2.0,True,1.0,0.9034,0.6735,0.9798
-rule,temporal,0.68,30.0,2.0,True,1.0,0.9034,0.6735,0.9798
-rule,temporal,0.7,30.0,3.0,True,1.0,0.9271,0.7634,0.9704
-rule,temporal,0.72,30.0,3.0,True,1.0,0.9271,0.7634,0.9704
-rule,temporal,0.74,30.0,3.0,True,1.0,0.9271,0.7634,0.9704
-rule,temporal,0.76,30.0,3.0,True,1.0,0.9271,0.7634,0.9704
-rule,temporal,0.78,30.0,4.0,True,1.0,0.9327,0.8115,0.9604
-rule,temporal,0.8,30.0,4.0,True,1.0,0.9327,0.8115,0.9604
-rule,temporal,0.82,30.0,5.0,True,1.0,0.9323,0.8417,0.9508
-rule,temporal,0.84,30.0,6.0,True,1.0,0.9285,0.8606,0.9409
-rule,temporal,0.86,30.0,7.0,True,1.0,0.923,0.874,0.9311
-rule,temporal,0.88,19.0,,False,0.9827,0.8302,,0.8302
-rule,temporal,0.9,11.0,,False,0.9123,0.887,,0.887
-rule,temporal,0.92,8.0,,False,0.8804,0.9131,,0.9131
-rule,temporal,0.94,5.0,,False,0.8452,0.9409,,0.9409
-rule,temporal,0.96,2.0,,False,0.7907,0.9704,,0.9704
-rule,temporal,0.98,0.0,,False,0.6279,0.9889,,0.9889
-rule,temporal,0.99,,,False,0.0,,,
-rule,leave out South Asia,0.6,30.0,2.0,True,1.0,0.976,0.566,0.9946
-rule,leave out South Asia,0.62,30.0,2.0,True,1.0,0.976,0.566,0.9946
-rule,leave out South Asia,0.64,30.0,2.0,True,1.0,0.976,0.566,0.9946
-rule,leave out South Asia,0.66,30.0,2.0,True,1.0,0.976,0.566,0.9946
-rule,leave out South Asia,0.68,30.0,2.0,True,1.0,0.976,0.566,0.9946
-rule,leave out South Asia,0.7,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
-rule,leave out South Asia,0.72,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
-rule,leave out South Asia,0.74,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
-rule,leave out South Asia,0.76,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
-rule,leave out South Asia,0.78,30.0,4.0,True,1.0,0.9841,0.7541,0.9905
-rule,leave out South Asia,0.8,30.0,4.0,True,1.0,0.9841,0.7541,0.9905
-rule,leave out South Asia,0.82,30.0,5.0,True,1.0,0.9839,0.7855,0.9887
-rule,leave out South Asia,0.84,18.0,6.0,True,1.0,0.9825,0.7994,0.9864
-rule,leave out South Asia,0.86,13.0,7.0,True,1.0,0.9817,0.8241,0.9846
-rule,leave out South Asia,0.88,10.0,9.0,True,1.0,0.9799,0.8647,0.9815
-rule,leave out South Asia,0.9,8.0,13.0,False,0.9944,0.9807,0.8768,0.9815
-rule,leave out South Asia,0.92,6.0,,False,0.9823,0.9846,,0.9846
-rule,leave out South Asia,0.94,4.0,,False,0.9761,0.9887,,0.9887
-rule,leave out South Asia,0.96,2.0,,False,0.9686,0.9925,,0.9925
-rule,leave out South Asia,0.98,0.0,,False,0.8605,0.997,,0.997
-rule,leave out South Asia,0.99,,,False,0.0,,,
-rule,leave out Southeast Asia,0.6,30.0,2.0,True,1.0,0.8774,0.7366,0.9427
-rule,leave out Southeast Asia,0.62,30.0,2.0,True,1.0,0.8774,0.7366,0.9427
-rule,leave out Southeast Asia,0.64,30.0,2.0,True,1.0,0.8774,0.7366,0.9427
-rule,leave out Southeast Asia,0.66,30.0,2.0,True,1.0,0.8774,0.7366,0.9427
-rule,leave out Southeast Asia,0.68,30.0,3.0,True,1.0,0.883,0.783,0.9208
-rule,leave out Southeast Asia,0.7,30.0,3.0,True,1.0,0.883,0.783,0.9208
-rule,leave out Southeast Asia,0.72,30.0,3.0,True,1.0,0.883,0.783,0.9208
-rule,leave out Southeast Asia,0.74,30.0,3.0,True,1.0,0.883,0.783,0.9208
-rule,leave out Southeast Asia,0.76,30.0,3.0,True,1.0,0.883,0.783,0.9208
-rule,leave out Southeast Asia,0.78,30.0,4.0,True,1.0,0.8774,0.8094,0.8992
-rule,leave out Southeast Asia,0.8,30.0,4.0,True,1.0,0.8774,0.8094,0.8992
-rule,leave out Southeast Asia,0.82,30.0,5.0,True,1.0,0.8684,0.8265,0.8799
-rule,leave out Southeast Asia,0.84,30.0,6.0,True,1.0,0.8537,0.8393,0.857
-rule,leave out Southeast Asia,0.86,30.0,7.0,True,1.0,0.8346,0.8429,0.8331
-rule,leave out Southeast Asia,0.88,16.0,8.0,True,1.0,0.8179,0.8401,0.8145
-rule,leave out Southeast Asia,0.9,12.0,13.0,False,1.0,0.7554,0.8665,0.751
-rule,leave out Southeast Asia,0.92,8.0,,False,0.8894,0.7983,,0.7983
-rule,leave out Southeast Asia,0.94,5.0,,False,0.8142,0.857,,0.857
-rule,leave out Southeast Asia,0.96,3.0,,False,0.7578,0.8992,,0.8992
-rule,leave out Southeast Asia,0.98,0.0,,False,0.608,0.9673,,0.9673
-rule,leave out Southeast Asia,0.99,,,False,0.0,,,
-rule,leave out North and Central America,0.6,27.0,2.0,True,1.0,0.9148,0.6839,0.9748
-rule,leave out North and Central America,0.62,27.0,2.0,True,1.0,0.9148,0.6839,0.9748
-rule,leave out North and Central America,0.64,27.0,2.0,True,1.0,0.9148,0.6839,0.9748
-rule,leave out North and Central America,0.66,27.0,2.0,True,1.0,0.9148,0.6839,0.9748
-rule,leave out North and Central America,0.68,27.0,2.0,True,1.0,0.9148,0.6839,0.9748
-rule,leave out North and Central America,0.7,27.0,3.0,True,1.0,0.9306,0.767,0.9644
-rule,leave out North and Central America,0.72,27.0,3.0,True,1.0,0.9306,0.767,0.9644
-rule,leave out North and Central America,0.74,27.0,3.0,True,1.0,0.9306,0.767,0.9644
-rule,leave out North and Central America,0.76,27.0,3.0,True,1.0,0.9306,0.767,0.9644
-rule,leave out North and Central America,0.78,27.0,4.0,True,1.0,0.9332,0.8125,0.9547
-rule,leave out North and Central America,0.8,27.0,5.0,True,1.0,0.9311,0.8413,0.9452
-rule,leave out North and Central America,0.82,27.0,6.0,True,1.0,0.9267,0.8597,0.936
-rule,leave out North and Central America,0.84,27.0,8.0,True,1.0,0.9152,0.8821,0.9189
-rule,leave out North and Central America,0.86,27.0,12.0,True,1.0,0.8886,0.8981,0.888
-rule,leave out North and Central America,0.88,27.0,15.0,True,1.0,0.8692,0.8996,0.868
-rule,leave out North and Central America,0.9,27.0,16.0,True,1.0,0.8639,0.8977,0.8628
-rule,leave out North and Central America,0.92,14.0,17.0,False,0.9877,0.8687,0.8954,0.868
-rule,leave out North and Central America,0.94,8.0,17.0,False,0.9355,0.9104,0.8954,0.9108
-rule,leave out North and Central America,0.96,5.0,19.0,False,0.8933,0.935,0.8767,0.936
-rule,leave out North and Central America,0.98,1.0,20.0,False,0.8052,0.973,0.8522,0.9748
-rule,leave out North and Central America,0.99,0.0,20.0,False,0.7028,0.9833,0.8522,0.9855
+history,grouped seed 42,0.6,0.9993,0.2834882438182831,True,1.0,0.9716,0.6,0.9994
+history,grouped seed 42,0.62,0.9993,0.3223916292190552,True,1.0,0.9738,0.6193,0.9993
+history,grouped seed 42,0.64,0.9993,0.36352190375328064,True,1.0,0.9759,0.6395,0.9993
+history,grouped seed 42,0.66,0.9993,0.4103485643863678,True,1.0,0.9779,0.6604,0.9992
+history,grouped seed 42,0.68,0.9993,0.4645509421825409,True,1.0,0.9798,0.6815,0.9991
+history,grouped seed 42,0.7,0.9993,0.5208002924919128,True,1.0,0.9815,0.7019,0.999
+history,grouped seed 42,0.72,0.9993,0.5811587572097778,True,1.0,0.983,0.7216,0.9989
+history,grouped seed 42,0.74,0.9993,0.6460265517234802,True,1.0,0.9845,0.7424,0.9987
+history,grouped seed 42,0.76,0.9993,0.7126437425613403,True,1.0,0.986,0.7648,0.9985
+history,grouped seed 42,0.78,0.9993,0.7732219099998474,True,1.0,0.9872,0.7857,0.9982
+history,grouped seed 42,0.8,0.9993,0.8330029845237732,True,1.0,0.9882,0.8048,0.9979
+history,grouped seed 42,0.82,0.9993,0.8884313702583313,True,1.0,0.989,0.8263,0.9972
+history,grouped seed 42,0.84,0.9993,0.9318228960037231,True,1.0,0.9895,0.8456,0.9965
+history,grouped seed 42,0.86,0.9993,0.9585434794425964,True,1.0,0.9896,0.8629,0.9955
+history,grouped seed 42,0.88,0.9993,0.9749550819396973,True,1.0,0.9888,0.878,0.9936
+history,grouped seed 42,0.9,0.9993,0.984535276889801,True,1.0,0.9868,0.8931,0.9904
+history,grouped seed 42,0.92,0.9993,0.9905015230178833,True,1.0,0.9826,0.9163,0.9847
+history,grouped seed 42,0.94,0.9993,,False,1.0,0.9577,,0.9577
+history,grouped seed 42,0.96,0.9981,,False,0.9986,0.9589,,0.9589
+history,grouped seed 42,0.98,0.9926,,False,0.9748,0.9805,,0.9805
+history,grouped seed 42,0.99,0.9849,,False,0.9632,0.9902,,0.9902
+history,temporal,0.6,0.9993,0.30905580520629883,True,1.0,0.979,0.6312,0.9997
+history,temporal,0.62,0.9993,0.34747111797332764,True,1.0,0.9805,0.6482,0.9996
+history,temporal,0.64,0.9993,0.38907745480537415,True,1.0,0.9817,0.6638,0.9996
+history,temporal,0.66,0.9993,0.4360666573047638,True,1.0,0.9829,0.6793,0.9996
+history,temporal,0.68,0.9993,0.4868878424167633,True,1.0,0.984,0.6939,0.9995
+history,temporal,0.7,0.9993,0.5421361923217773,True,1.0,0.9852,0.7115,0.9995
+history,temporal,0.72,0.9993,0.5991994738578796,True,1.0,0.9863,0.7273,0.9994
+history,temporal,0.74,0.9993,0.6570000648498535,True,1.0,0.9872,0.7422,0.9993
+history,temporal,0.76,0.9993,0.7171562314033508,True,1.0,0.9881,0.7575,0.9992
+history,temporal,0.78,0.9993,0.7779666185379028,True,1.0,0.989,0.7745,0.9991
+history,temporal,0.8,0.9993,0.836679220199585,True,1.0,0.9899,0.7928,0.9989
+history,temporal,0.82,0.9993,0.8873620629310608,True,1.0,0.9906,0.8097,0.9986
+history,temporal,0.84,0.9993,0.9334352612495422,True,1.0,0.9913,0.8307,0.9981
+history,temporal,0.86,0.9993,0.9631702303886414,True,1.0,0.9918,0.8582,0.9971
+history,temporal,0.88,0.9993,0.9780638217926025,True,1.0,0.9915,0.8822,0.9955
+history,temporal,0.9,0.9993,0.9869728684425354,True,1.0,0.9896,0.9086,0.9922
+history,temporal,0.92,0.9993,0.9924781322479248,True,1.0,0.9855,0.9297,0.9869
+history,temporal,0.94,0.9993,0.997015118598938,True,1.0,0.9648,0.9878,0.9648
+history,temporal,0.96,0.9965,,False,0.9992,0.9651,,0.9651
+history,temporal,0.98,0.9913,,False,0.9735,0.9885,,0.9885
+history,temporal,0.99,0.9809,,False,0.9655,0.9948,,0.9948
+history,leave out South Asia,0.6,0.9997,0.2747170031070709,True,1.0,0.9692,0.4911,0.9995
+history,leave out South Asia,0.62,0.9997,0.3125530779361725,True,1.0,0.9722,0.5172,0.9995
+history,leave out South Asia,0.64,0.9997,0.35468900203704834,True,1.0,0.9752,0.5466,0.9995
+history,leave out South Asia,0.66,0.9997,0.402147501707077,True,1.0,0.9778,0.5747,0.9993
+history,leave out South Asia,0.68,0.9997,0.453904390335083,True,1.0,0.98,0.6012,0.9993
+history,leave out South Asia,0.7,0.9997,0.5131485462188721,True,1.0,0.9824,0.6325,0.9992
+history,leave out South Asia,0.72,0.9997,0.576418399810791,True,1.0,0.9842,0.6593,0.999
+history,leave out South Asia,0.74,0.9997,0.6400976777076721,True,1.0,0.9855,0.6805,0.9989
+history,leave out South Asia,0.76,0.9997,0.7041521072387695,True,1.0,0.9864,0.6982,0.9986
+history,leave out South Asia,0.78,0.9997,0.7690114974975586,True,1.0,0.9872,0.7151,0.9983
+history,leave out South Asia,0.8,0.9997,0.8317179083824158,True,1.0,0.9876,0.7281,0.9978
+history,leave out South Asia,0.82,0.9997,0.8869510293006897,True,1.0,0.988,0.7457,0.9971
+history,leave out South Asia,0.84,0.9997,0.9319164752960205,True,1.0,0.9883,0.7647,0.9961
+history,leave out South Asia,0.86,0.9997,0.9601919054985046,True,1.0,0.9883,0.7888,0.9948
+history,leave out South Asia,0.88,0.9997,0.9764372110366821,True,1.0,0.9877,0.8228,0.9923
+history,leave out South Asia,0.9,0.9997,0.9861382842063904,True,1.0,0.9852,0.8757,0.9874
+history,leave out South Asia,0.92,0.9997,0.9912881255149841,True,1.0,0.981,0.9388,0.9815
+history,leave out South Asia,0.94,0.9997,0.9949479103088379,True,1.0,0.9748,0.9907,0.9747
+history,leave out South Asia,0.96,0.9977,,False,1.0,0.9703,,0.9703
+history,leave out South Asia,0.98,0.993,,False,0.9912,0.9786,,0.9786
+history,leave out South Asia,0.99,0.9855,,False,0.9796,0.9878,,0.9878
+history,leave out Southeast Asia,0.6,0.9991,0.2746671140193939,True,1.0,0.885,0.7144,0.9839
+history,leave out Southeast Asia,0.62,0.9991,0.31309157609939575,True,1.0,0.8862,0.7183,0.982
+history,leave out Southeast Asia,0.64,0.9991,0.35563865303993225,True,1.0,0.8888,0.7243,0.9812
+history,leave out Southeast Asia,0.66,0.9991,0.4025515615940094,True,1.0,0.8915,0.7312,0.9797
+history,leave out Southeast Asia,0.68,0.9991,0.45475947856903076,True,1.0,0.8933,0.7361,0.9784
+history,leave out Southeast Asia,0.7,0.9991,0.5119399428367615,True,1.0,0.8948,0.7413,0.9761
+history,leave out Southeast Asia,0.72,0.9991,0.5749579071998596,True,1.0,0.898,0.7496,0.9748
+history,leave out Southeast Asia,0.74,0.9991,0.6382842659950256,True,1.0,0.8996,0.7568,0.9715
+history,leave out Southeast Asia,0.76,0.9991,0.7010049223899841,True,1.0,0.8992,0.7616,0.9663
+history,leave out Southeast Asia,0.78,0.9991,0.764192521572113,True,1.0,0.8988,0.7684,0.9599
+history,leave out Southeast Asia,0.8,0.9991,0.8261429667472839,True,1.0,0.895,0.7739,0.9484
+history,leave out Southeast Asia,0.82,0.9991,0.8803075551986694,True,1.0,0.8925,0.7811,0.9387
+history,leave out Southeast Asia,0.84,0.9991,0.9280651211738586,True,1.0,0.8907,0.796,0.9267
+history,leave out Southeast Asia,0.86,0.9991,0.9579041600227356,True,1.0,0.8845,0.8087,0.9103
+history,leave out Southeast Asia,0.88,0.9991,0.9755212664604187,True,1.0,0.8739,0.8325,0.8855
+history,leave out Southeast Asia,0.9,0.9991,0.9852730631828308,True,1.0,0.8501,0.8577,0.8485
+history,leave out Southeast Asia,0.92,0.9991,0.990874171257019,True,1.0,0.8066,0.865,0.7995
+history,leave out Southeast Asia,0.94,0.9991,0.9944607019424438,True,1.0,0.7646,0.9087,0.7577
+history,leave out Southeast Asia,0.96,0.9985,,False,1.0,0.7276,,0.7276
+history,leave out Southeast Asia,0.98,0.9936,,False,0.9394,0.7669,,0.7669
+history,leave out Southeast Asia,0.99,0.9871,,False,0.8446,0.8351,,0.8351
+history,leave out North and Central America,0.6,0.9996,0.274319052696228,True,1.0,0.9372,0.7318,0.9925
+history,leave out North and Central America,0.62,0.9996,0.3115726113319397,True,1.0,0.9393,0.74,0.992
+history,leave out North and Central America,0.64,0.9996,0.35581502318382263,True,1.0,0.941,0.7468,0.9916
+history,leave out North and Central America,0.66,0.9996,0.4095936715602875,True,1.0,0.9428,0.7547,0.991
+history,leave out North and Central America,0.68,0.9996,0.4664515256881714,True,1.0,0.9449,0.7638,0.9904
+history,leave out North and Central America,0.7,0.9996,0.5265682935714722,True,1.0,0.9465,0.7714,0.9898
+history,leave out North and Central America,0.72,0.9996,0.5910608172416687,True,1.0,0.9478,0.7789,0.9888
+history,leave out North and Central America,0.74,0.9996,0.6584509015083313,True,1.0,0.9491,0.7867,0.9877
+history,leave out North and Central America,0.76,0.9996,0.7238602042198181,True,1.0,0.9503,0.7947,0.9866
+history,leave out North and Central America,0.78,0.9996,0.7898531556129456,True,1.0,0.9518,0.805,0.9851
+history,leave out North and Central America,0.8,0.9996,0.8492061495780945,True,1.0,0.953,0.8162,0.9832
+history,leave out North and Central America,0.82,0.9996,0.9034984111785889,True,1.0,0.9545,0.8329,0.98
+history,leave out North and Central America,0.84,0.9996,0.9484331011772156,True,1.0,0.9554,0.8609,0.9736
+history,leave out North and Central America,0.86,0.9996,0.9730556607246399,True,1.0,0.9521,0.8926,0.9621
+history,leave out North and Central America,0.88,0.9996,0.9843800067901611,True,1.0,0.9412,0.9207,0.9441
+history,leave out North and Central America,0.9,0.9996,0.9903355836868286,True,1.0,0.9206,0.9412,0.9185
+history,leave out North and Central America,0.92,0.9996,0.9934238195419312,True,1.0,0.892,0.9632,0.8877
+history,leave out North and Central America,0.94,0.9996,0.9959754347801208,True,1.0,0.854,0.9735,0.8521
+history,leave out North and Central America,0.96,0.9996,0.99936443567276,True,1.0,0.8389,,0.8389
+history,leave out North and Central America,0.98,0.9961,0.9994953870773315,False,0.9854,0.851,,0.851
+history,leave out North and Central America,0.99,0.9919,0.9995037317276001,False,0.922,0.9058,,0.9058
+history,leave out Brazil,0.6,0.9997,0.2585589587688446,True,1.0,0.9333,0.4793,0.998
+history,leave out Brazil,0.62,0.9997,0.2959740161895752,True,1.0,0.9386,0.5007,0.9978
+history,leave out Brazil,0.64,0.9997,0.33898746967315674,True,1.0,0.9436,0.5226,0.9977
+history,leave out Brazil,0.66,0.9997,0.3871099054813385,True,1.0,0.9487,0.5475,0.9975
+history,leave out Brazil,0.68,0.9997,0.4410620331764221,True,1.0,0.954,0.5755,0.9973
+history,leave out Brazil,0.7,0.9997,0.5019846558570862,True,1.0,0.9587,0.6038,0.997
+history,leave out Brazil,0.72,0.9997,0.5696675181388855,True,1.0,0.9638,0.6378,0.9968
+history,leave out Brazil,0.74,0.9997,0.6390453577041626,True,1.0,0.9687,0.6744,0.9966
+history,leave out Brazil,0.76,0.9997,0.7057223320007324,True,1.0,0.9728,0.7099,0.9963
+history,leave out Brazil,0.78,0.9997,0.7728145718574524,True,1.0,0.977,0.7508,0.9959
+history,leave out Brazil,0.8,0.9997,0.8397006392478943,True,1.0,0.9803,0.7879,0.9954
+history,leave out Brazil,0.82,0.9997,0.8957782983779907,True,1.0,0.9835,0.8323,0.9945
+history,leave out Brazil,0.84,0.9997,0.9390976428985596,True,1.0,0.9855,0.8777,0.9927
+history,leave out Brazil,0.86,0.9997,0.9640902280807495,True,1.0,0.9852,0.9148,0.9894
+history,leave out Brazil,0.88,0.9997,0.977931559085846,True,1.0,0.9823,0.9416,0.9845
+history,leave out Brazil,0.9,0.9997,0.9863489866256714,True,1.0,0.9775,0.9661,0.978
+history,leave out Brazil,0.92,0.9997,0.9917047023773193,True,1.0,0.9675,0.9806,0.9671
+history,leave out Brazil,0.94,0.9997,0.9948877692222595,True,1.0,0.9551,0.9965,0.9544
+history,leave out Brazil,0.96,0.9981,0.9981123208999634,False,1.0,0.9384,,0.9384
+history,leave out Brazil,0.98,0.9933,0.9985581040382385,False,0.9756,0.9616,,0.9616
+history,leave out Brazil,0.99,0.9864,0.9987611770629883,False,0.9582,0.9778,,0.9778
+history,leave out Australia,0.6,0.9997,0.24659693241119385,True,1.0,0.9632,0.2567,0.9998
+history,leave out Australia,0.62,0.9997,0.28530415892601013,True,1.0,0.9687,0.2887,0.9998
+history,leave out Australia,0.64,0.9997,0.32755038142204285,True,1.0,0.9732,0.3216,0.9998
+history,leave out Australia,0.66,0.9997,0.37354016304016113,True,1.0,0.9775,0.3611,0.9998
+history,leave out Australia,0.68,0.9997,0.4285821318626404,True,1.0,0.9818,0.4116,0.9998
+history,leave out Australia,0.7,0.9997,0.48863908648490906,True,1.0,0.9851,0.4613,0.9998
+history,leave out Australia,0.72,0.9997,0.5548821091651917,True,1.0,0.9879,0.5154,0.9997
+history,leave out Australia,0.74,0.9997,0.6238172650337219,True,1.0,0.99,0.5632,0.9997
+history,leave out Australia,0.76,0.9997,0.6943814754486084,True,1.0,0.9921,0.623,0.9997
+history,leave out Australia,0.78,0.9997,0.7641335129737854,True,1.0,0.994,0.6882,0.9996
+history,leave out Australia,0.8,0.9997,0.8246472477912903,True,1.0,0.9954,0.7472,0.9995
+history,leave out Australia,0.82,0.9997,0.8830881714820862,True,1.0,0.9966,0.8127,0.9994
+history,leave out Australia,0.84,0.9997,0.9287277460098267,True,1.0,0.9972,0.8596,0.9992
+history,leave out Australia,0.86,0.9997,0.9576423764228821,True,1.0,0.9975,0.8943,0.9988
+history,leave out Australia,0.88,0.9997,0.9745441675186157,True,1.0,0.9971,0.9147,0.9981
+history,leave out Australia,0.9,0.9997,0.9841895699501038,True,1.0,0.9963,0.9326,0.997
+history,leave out Australia,0.92,0.9997,0.9899829030036926,True,1.0,0.9946,0.9371,0.9951
+history,leave out Australia,0.94,0.9997,0.9941961765289307,True,1.0,0.9918,0.9668,0.9919
+history,leave out Australia,0.96,0.9961,0.9973198771476746,False,0.9972,0.99,1.0,0.99
+history,leave out Australia,0.98,0.9906,0.9979440569877625,False,0.9919,0.9947,1.0,0.9947
+history,leave out Australia,0.99,0.9796,0.9980625510215759,False,0.9887,0.9977,1.0,0.9977
+history,leave out India,0.6,0.9994,0.5194129347801208,True,1.0,0.9782,0.8013,0.9988
+history,leave out India,0.62,0.9994,0.5580824017524719,True,1.0,0.979,0.8081,0.9987
+history,leave out India,0.64,0.9994,0.5954286456108093,True,1.0,0.9796,0.8137,0.9986
+history,leave out India,0.66,0.9994,0.6338892579078674,True,1.0,0.9801,0.819,0.9983
+history,leave out India,0.68,0.9994,0.6728273630142212,True,1.0,0.9803,0.8228,0.998
+history,leave out India,0.7,0.9994,0.7144939303398132,True,1.0,0.9807,0.8272,0.9977
+history,leave out India,0.72,0.9994,0.758020281791687,True,1.0,0.981,0.832,0.9975
+history,leave out India,0.74,0.9994,0.8006723523139954,True,1.0,0.9814,0.8365,0.9972
+history,leave out India,0.76,0.9994,0.8407533168792725,True,1.0,0.9816,0.8408,0.9968
+history,leave out India,0.78,0.9994,0.8774986267089844,True,1.0,0.9817,0.8455,0.9962
+history,leave out India,0.8,0.9994,0.9087536931037903,True,1.0,0.9817,0.8498,0.9955
+history,leave out India,0.82,0.9994,0.9365282654762268,True,1.0,0.9814,0.854,0.9945
+history,leave out India,0.84,0.9994,0.956875741481781,True,1.0,0.9808,0.859,0.993
+history,leave out India,0.86,0.9994,0.971732497215271,True,1.0,0.9798,0.8654,0.9909
+history,leave out India,0.88,0.9994,0.9812186360359192,True,1.0,0.9782,0.8726,0.988
+history,leave out India,0.9,0.9994,0.9879211187362671,True,1.0,0.9739,0.88,0.9817
+history,leave out India,0.92,0.9994,0.9925699830055237,True,1.0,0.9659,0.8895,0.9712
+history,leave out India,0.94,0.9994,0.9953416585922241,True,1.0,0.9531,0.898,0.9559
+history,leave out India,0.96,0.9994,0.9974282383918762,True,1.0,0.9303,0.9099,0.9307
+history,leave out India,0.98,0.9962,0.9992006421089172,False,0.9613,0.9482,1.0,0.9482
+history,leave out India,0.99,0.9902,,False,0.9291,0.976,,0.976
+history,leave out Nigeria,0.6,0.9992,0.21663670241832733,True,1.0,0.9065,0.171,0.9998
+history,leave out Nigeria,0.62,0.9992,0.24870415031909943,True,1.0,0.915,0.1849,0.9998
+history,leave out Nigeria,0.64,0.9992,0.28460612893104553,True,1.0,0.9231,0.2006,0.9998
+history,leave out Nigeria,0.66,0.9992,0.3252798020839691,True,1.0,0.931,0.2184,0.9998
+history,leave out Nigeria,0.68,0.9992,0.3743211030960083,True,1.0,0.9386,0.2387,0.9997
+history,leave out Nigeria,0.7,0.9992,0.4282735586166382,True,1.0,0.946,0.2631,0.9997
+history,leave out Nigeria,0.72,0.9992,0.49321797490119934,True,1.0,0.9535,0.2931,0.9997
+history,leave out Nigeria,0.74,0.9992,0.5634477138519287,True,1.0,0.9603,0.3265,0.9996
+history,leave out Nigeria,0.76,0.9992,0.6415032148361206,True,1.0,0.967,0.3681,0.9995
+history,leave out Nigeria,0.78,0.9992,0.7205252051353455,True,1.0,0.9731,0.4172,0.9994
+history,leave out Nigeria,0.8,0.9992,0.7936123013496399,True,1.0,0.9792,0.4817,0.9992
+history,leave out Nigeria,0.82,0.9992,0.8625282049179077,True,1.0,0.9846,0.5616,0.999
+history,leave out Nigeria,0.84,0.9992,0.9134637713432312,True,1.0,0.9884,0.6371,0.9987
+history,leave out Nigeria,0.86,0.9992,0.9482051730155945,True,1.0,0.9906,0.6977,0.9983
+history,leave out Nigeria,0.88,0.9992,0.9684255719184875,True,1.0,0.9917,0.7386,0.9977
+history,leave out Nigeria,0.9,0.9992,0.9808803200721741,True,1.0,0.9915,0.7621,0.9964
+history,leave out Nigeria,0.92,0.9992,0.9882744550704956,True,1.0,0.9907,0.7872,0.9944
+history,leave out Nigeria,0.94,0.9992,0.9939695596694946,True,1.0,0.9874,0.8137,0.9893
+history,leave out Nigeria,0.96,0.9971,0.9989345669746399,False,0.9982,0.9822,1.0,0.9822
+history,leave out Nigeria,0.98,0.9923,0.9990108013153076,False,0.9863,0.9915,1.0,0.9915
+history,leave out Nigeria,0.99,0.9839,0.9990793466567993,False,0.9801,0.9958,1.0,0.9958
+history,leave out DR Congo,0.6,0.999,0.19827045500278473,True,1.0,0.9848,0.0318,1.0
+history,leave out DR Congo,0.62,0.999,0.22842100262641907,True,1.0,0.9868,0.0364,1.0
+history,leave out DR Congo,0.64,0.999,0.26251479983329773,True,1.0,0.9885,0.0418,1.0
+history,leave out DR Congo,0.66,0.999,0.3037715256214142,True,1.0,0.9901,0.0478,1.0
+history,leave out DR Congo,0.68,0.999,0.351205974817276,True,1.0,0.9915,0.0555,1.0
+history,leave out DR Congo,0.7,0.999,0.40534842014312744,True,1.0,0.9927,0.0639,1.0
+history,leave out DR Congo,0.72,0.999,0.46779268980026245,True,1.0,0.9939,0.0746,1.0
+history,leave out DR Congo,0.74,0.999,0.5323373675346375,True,1.0,0.9949,0.0875,1.0
+history,leave out DR Congo,0.76,0.999,0.6033961176872253,True,1.0,0.9958,0.1052,1.0
+history,leave out DR Congo,0.78,0.999,0.6797053217887878,True,1.0,0.9966,0.1269,1.0
+history,leave out DR Congo,0.8,0.999,0.7568702697753906,True,1.0,0.9973,0.1494,1.0
+history,leave out DR Congo,0.82,0.999,0.8315085768699646,True,1.0,0.9979,0.1856,0.9999
+history,leave out DR Congo,0.84,0.999,0.8937860131263733,True,1.0,0.9986,0.2463,0.9999
+history,leave out DR Congo,0.86,0.999,0.9356327056884766,True,1.0,0.9989,0.289,0.9999
+history,leave out DR Congo,0.88,0.999,0.9618993401527405,True,1.0,0.9991,0.3185,0.9998
+history,leave out DR Congo,0.9,0.999,0.9774520397186279,True,1.0,0.9993,0.3439,0.9997
+history,leave out DR Congo,0.92,0.999,0.986594557762146,True,1.0,0.9994,0.3991,0.9996
+history,leave out DR Congo,0.94,0.9979,0.9925455451011658,True,1.0,0.9995,0.6038,0.9995
+history,leave out DR Congo,0.96,0.9933,0.9984867572784424,False,0.9999,0.9995,,0.9995
+history,leave out DR Congo,0.98,0.9859,0.9986584186553955,False,0.9997,0.9996,,0.9996
+history,leave out DR Congo,0.99,0.9697,0.9986782670021057,False,0.9991,0.9998,,0.9998
+instant,grouped seed 42,0.6,0.9504,0.9313666224479675,True,1.0,0.9577,0.4706,0.9577
+instant,grouped seed 42,0.62,0.9504,0.9328616261482239,True,1.0,0.9577,0.5,0.9577
+instant,grouped seed 42,0.64,0.9504,0.9332693219184875,True,1.0,0.9577,0.52,0.9577
+instant,grouped seed 42,0.66,0.9504,0.933552622795105,True,1.0,0.9577,0.5,0.9577
+instant,grouped seed 42,0.68,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.7,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.72,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.74,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.76,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.78,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.8,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.82,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.84,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.86,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.88,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.9,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.92,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.94,0.9504,,False,1.0,0.9577,,0.9577
+instant,grouped seed 42,0.96,0.8978,,False,0.9904,0.9608,,0.9608
+instant,grouped seed 42,0.98,0.821,,False,0.898,0.9795,,0.9795
+instant,grouped seed 42,0.99,0.7286,,False,0.8274,0.9894,,0.9894
+instant,temporal,0.6,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.62,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.64,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.66,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.68,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.7,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.72,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.74,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.76,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.78,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.8,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.82,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.84,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.86,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.88,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.9,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.92,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.94,0.9544,,False,1.0,0.9643,,0.9643
+instant,temporal,0.96,0.8933,,False,0.9821,0.9674,,0.9674
+instant,temporal,0.98,0.8005,,False,0.8996,0.983,,0.983
+instant,temporal,0.99,0.6884,,False,0.8411,0.9913,,0.9913
+instant,leave out South Asia,0.6,0.9616,0.9348435401916504,True,1.0,0.9702,0.3,0.9703
+instant,leave out South Asia,0.62,0.9616,0.9356208443641663,True,1.0,0.9702,0.3,0.9703
+instant,leave out South Asia,0.64,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.66,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.68,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.7,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.72,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.74,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.76,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.78,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.8,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.82,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.84,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.86,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.88,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.9,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.92,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.94,0.9616,,False,1.0,0.9703,,0.9703
+instant,leave out South Asia,0.96,0.8982,,False,0.9857,0.9719,,0.9719
+instant,leave out South Asia,0.98,0.8197,,False,0.8813,0.9862,,0.9862
+instant,leave out South Asia,0.99,0.7222,,False,0.8218,0.9951,,0.9951
+instant,leave out Southeast Asia,0.6,0.9544,0.9340727925300598,True,1.0,0.7277,1.0,0.7276
+instant,leave out Southeast Asia,0.62,0.9544,0.9363620281219482,True,1.0,0.7277,1.0,0.7276
+instant,leave out Southeast Asia,0.64,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.66,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.68,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.7,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.72,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.74,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.76,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.78,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.8,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.82,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.84,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.86,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.88,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.9,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.92,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.94,0.9544,,False,1.0,0.7276,,0.7276
+instant,leave out Southeast Asia,0.96,0.9074,,False,0.9887,0.7322,,0.7322
+instant,leave out Southeast Asia,0.98,0.8249,,False,0.8028,0.8172,,0.8172
+instant,leave out Southeast Asia,0.99,0.7414,,False,0.685,0.8755,,0.8755
+instant,leave out North and Central America,0.6,0.9653,0.9414284825325012,True,1.0,0.8389,0.3333,0.8389
+instant,leave out North and Central America,0.62,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.64,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.66,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.68,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.7,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.72,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.74,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.76,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.78,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.8,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.82,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.84,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.86,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.88,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.9,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.92,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.94,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.96,0.9653,,False,1.0,0.8389,,0.8389
+instant,leave out North and Central America,0.98,0.8489,,False,0.9293,0.8682,,0.8682
+instant,leave out North and Central America,0.99,0.773,,False,0.7609,0.9377,,0.9377
+instant,leave out Brazil,0.6,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.62,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.64,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.66,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.68,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.7,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.72,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.74,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.76,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.78,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.8,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.82,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.84,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.86,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.88,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.9,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.92,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.94,0.9557,,False,1.0,0.9384,,0.9384
+instant,leave out Brazil,0.96,0.9093,,False,0.9933,0.9398,,0.9398
+instant,leave out Brazil,0.98,0.8305,,False,0.8642,0.9596,,0.9596
+instant,leave out Brazil,0.99,0.745,,False,0.7304,0.9755,,0.9755
+instant,leave out Australia,0.6,0.9641,0.9461272358894348,True,1.0,0.9872,0.0,0.9872
+instant,leave out Australia,0.62,0.9641,0.9463348388671875,True,1.0,0.9872,0.0,0.9872
+instant,leave out Australia,0.64,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.66,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.68,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.7,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.72,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.74,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.76,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.78,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.8,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.82,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.84,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.86,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.88,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.9,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.92,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.94,0.9641,,False,1.0,0.9872,,0.9872
+instant,leave out Australia,0.96,0.9018,,False,0.9532,0.9886,,0.9886
+instant,leave out Australia,0.98,0.8356,,False,0.8077,0.9933,,0.9933
+instant,leave out Australia,0.99,0.7228,,False,0.705,0.9964,,0.9964
+instant,leave out India,0.6,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.62,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.64,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.66,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.68,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.7,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.72,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.74,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.76,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.78,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.8,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.82,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.84,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.86,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.88,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.9,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.92,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.94,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.96,0.9525,,False,1.0,0.9152,,0.9152
+instant,leave out India,0.98,0.8615,,False,0.9751,0.9223,,0.9223
+instant,leave out India,0.99,0.7836,,False,0.8137,0.9633,,0.9633
+instant,leave out Nigeria,0.6,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.62,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.64,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.66,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.68,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.7,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.72,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.74,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.76,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.78,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.8,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.82,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.84,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.86,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.88,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.9,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.92,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.94,0.9483,,False,1.0,0.9806,,0.9806
+instant,leave out Nigeria,0.96,0.8861,,False,0.9888,0.9814,,0.9814
+instant,leave out Nigeria,0.98,0.8119,,False,0.9251,0.9863,,0.9863
+instant,leave out Nigeria,0.99,0.7058,,False,0.8565,0.9928,,0.9928
+instant,leave out DR Congo,0.6,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.62,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.64,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.66,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.68,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.7,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.72,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.74,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.76,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.78,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.8,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.82,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.84,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.86,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.88,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.9,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.92,0.928,,False,1.0,0.9995,,0.9995
+instant,leave out DR Congo,0.94,0.8888,,False,0.9995,0.9995,,0.9995
+instant,leave out DR Congo,0.96,0.8109,,False,0.9872,0.9998,,0.9998
+instant,leave out DR Congo,0.98,0.7189,,False,0.9685,0.9999,,0.9999
+instant,leave out DR Congo,0.99,0.3635,,False,0.915,1.0,,1.0
+rule,grouped seed 42,0.6,30.0,3.0,True,1.0,0.9762,0.668,0.9941
+rule,grouped seed 42,0.62,30.0,3.0,True,1.0,0.9762,0.668,0.9941
+rule,grouped seed 42,0.64,30.0,3.0,True,1.0,0.9762,0.668,0.9941
+rule,grouped seed 42,0.66,30.0,3.0,True,1.0,0.9762,0.668,0.9941
+rule,grouped seed 42,0.68,30.0,4.0,True,1.0,0.9824,0.7735,0.9923
+rule,grouped seed 42,0.7,30.0,4.0,True,1.0,0.9824,0.7735,0.9923
+rule,grouped seed 42,0.72,30.0,4.0,True,1.0,0.9824,0.7735,0.9923
+rule,grouped seed 42,0.74,30.0,4.0,True,1.0,0.9824,0.7735,0.9923
+rule,grouped seed 42,0.76,30.0,4.0,True,1.0,0.9824,0.7735,0.9923
+rule,grouped seed 42,0.78,30.0,5.0,True,1.0,0.9836,0.8185,0.9906
+rule,grouped seed 42,0.8,30.0,5.0,True,1.0,0.9836,0.8185,0.9906
+rule,grouped seed 42,0.82,30.0,6.0,True,1.0,0.9833,0.8422,0.9888
+rule,grouped seed 42,0.84,30.0,7.0,True,1.0,0.9825,0.8567,0.987
+rule,grouped seed 42,0.86,30.0,8.0,True,1.0,0.9814,0.8673,0.9852
+rule,grouped seed 42,0.88,30.0,11.0,True,1.0,0.9776,0.8857,0.98
+rule,grouped seed 42,0.9,30.0,14.0,True,1.0,0.9734,0.8923,0.9751
+rule,grouped seed 42,0.92,30.0,19.0,True,1.0,0.9666,0.8768,0.9677
+rule,grouped seed 42,0.94,30.0,27.0,True,1.0,0.9595,0.7921,0.96
+rule,grouped seed 42,0.96,27.0,28.0,False,1.0,0.9592,0.8507,0.9595
+rule,grouped seed 42,0.98,9.0,,False,0.9721,0.9818,,0.9818
+rule,grouped seed 42,0.99,4.0,,False,0.9593,0.9906,,0.9906
+rule,temporal,0.6,30.0,3.0,True,1.0,0.9744,0.5953,0.9956
+rule,temporal,0.62,30.0,3.0,True,1.0,0.9744,0.5953,0.9956
+rule,temporal,0.64,30.0,3.0,True,1.0,0.9744,0.5953,0.9956
+rule,temporal,0.66,30.0,3.0,True,1.0,0.9744,0.5953,0.9956
+rule,temporal,0.68,30.0,3.0,True,1.0,0.9744,0.5953,0.9956
+rule,temporal,0.7,30.0,3.0,True,1.0,0.9744,0.5953,0.9956
+rule,temporal,0.72,30.0,4.0,True,1.0,0.9812,0.6956,0.9941
+rule,temporal,0.74,30.0,4.0,True,1.0,0.9812,0.6956,0.9941
+rule,temporal,0.76,30.0,4.0,True,1.0,0.9812,0.6956,0.9941
+rule,temporal,0.78,30.0,4.0,True,1.0,0.9812,0.6956,0.9941
+rule,temporal,0.8,30.0,4.0,True,1.0,0.9812,0.6956,0.9941
+rule,temporal,0.82,30.0,5.0,True,1.0,0.9832,0.7481,0.9925
+rule,temporal,0.84,30.0,5.0,True,1.0,0.9832,0.7481,0.9925
+rule,temporal,0.86,30.0,6.0,True,1.0,0.9837,0.7819,0.9909
+rule,temporal,0.88,30.0,8.0,True,1.0,0.983,0.825,0.9877
+rule,temporal,0.9,30.0,13.0,True,1.0,0.9783,0.8881,0.98
+rule,temporal,0.92,30.0,27.0,True,1.0,0.9651,0.9514,0.9651
+rule,temporal,0.94,30.0,28.0,True,1.0,0.9649,0.9416,0.9649
+rule,temporal,0.96,24.0,,False,0.9982,0.9659,,0.9659
+rule,temporal,0.98,8.0,,False,0.9736,0.9861,,0.9861
+rule,temporal,0.99,3.0,,False,0.9568,0.9941,,0.9941
+rule,leave out South Asia,0.6,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
+rule,leave out South Asia,0.62,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
+rule,leave out South Asia,0.64,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
+rule,leave out South Asia,0.66,30.0,3.0,True,1.0,0.9838,0.7157,0.9925
+rule,leave out South Asia,0.68,30.0,4.0,True,1.0,0.9841,0.7541,0.9905
+rule,leave out South Asia,0.7,30.0,4.0,True,1.0,0.9841,0.7541,0.9905
+rule,leave out South Asia,0.72,30.0,4.0,True,1.0,0.9841,0.7541,0.9905
+rule,leave out South Asia,0.74,30.0,4.0,True,1.0,0.9841,0.7541,0.9905
+rule,leave out South Asia,0.76,30.0,4.0,True,1.0,0.9841,0.7541,0.9905
+rule,leave out South Asia,0.78,30.0,5.0,True,1.0,0.9839,0.7855,0.9887
+rule,leave out South Asia,0.8,30.0,5.0,True,1.0,0.9839,0.7855,0.9887
+rule,leave out South Asia,0.82,30.0,6.0,True,1.0,0.9825,0.7994,0.9864
+rule,leave out South Asia,0.84,30.0,7.0,True,1.0,0.9817,0.8241,0.9846
+rule,leave out South Asia,0.86,30.0,8.0,True,1.0,0.981,0.8457,0.9831
+rule,leave out South Asia,0.88,30.0,11.0,True,1.0,0.9778,0.8706,0.9789
+rule,leave out South Asia,0.9,30.0,14.0,True,1.0,0.9753,0.8889,0.9759
+rule,leave out South Asia,0.92,30.0,27.0,True,1.0,0.9704,1.0,0.9704
+rule,leave out South Asia,0.94,30.0,28.0,True,1.0,0.9703,,0.9703
+rule,leave out South Asia,0.96,26.0,,False,0.9999,0.9704,,0.9704
+rule,leave out South Asia,0.98,9.0,,False,0.9885,0.9801,,0.9801
+rule,leave out South Asia,0.99,4.0,,False,0.9761,0.9887,,0.9887
+rule,leave out Southeast Asia,0.6,30.0,3.0,True,1.0,0.883,0.783,0.9208
+rule,leave out Southeast Asia,0.62,30.0,3.0,True,1.0,0.883,0.783,0.9208
+rule,leave out Southeast Asia,0.64,30.0,3.0,True,1.0,0.883,0.783,0.9208
+rule,leave out Southeast Asia,0.66,30.0,3.0,True,1.0,0.883,0.783,0.9208
+rule,leave out Southeast Asia,0.68,30.0,4.0,True,1.0,0.8774,0.8094,0.8992
+rule,leave out Southeast Asia,0.7,30.0,4.0,True,1.0,0.8774,0.8094,0.8992
+rule,leave out Southeast Asia,0.72,30.0,4.0,True,1.0,0.8774,0.8094,0.8992
+rule,leave out Southeast Asia,0.74,30.0,4.0,True,1.0,0.8774,0.8094,0.8992
+rule,leave out Southeast Asia,0.76,30.0,4.0,True,1.0,0.8774,0.8094,0.8992
+rule,leave out Southeast Asia,0.78,30.0,5.0,True,1.0,0.8684,0.8265,0.8799
+rule,leave out Southeast Asia,0.8,30.0,5.0,True,1.0,0.8684,0.8265,0.8799
+rule,leave out Southeast Asia,0.82,30.0,6.0,True,1.0,0.8537,0.8393,0.857
+rule,leave out Southeast Asia,0.84,30.0,7.0,True,1.0,0.8346,0.8429,0.8331
+rule,leave out Southeast Asia,0.86,30.0,8.0,True,1.0,0.8179,0.8401,0.8145
+rule,leave out Southeast Asia,0.88,30.0,10.0,True,1.0,0.7881,0.8382,0.7832
+rule,leave out Southeast Asia,0.9,30.0,14.0,True,1.0,0.7495,0.8681,0.7458
+rule,leave out Southeast Asia,0.92,30.0,27.0,True,1.0,0.7279,1.0,0.7278
+rule,leave out Southeast Asia,0.94,30.0,28.0,True,1.0,0.7276,,0.7276
+rule,leave out Southeast Asia,0.96,28.0,,False,1.0,0.7276,,0.7276
+rule,leave out Southeast Asia,0.98,10.0,,False,0.9314,0.7705,,0.7705
+rule,leave out Southeast Asia,0.99,4.0,,False,0.7844,0.8799,,0.8799
+rule,leave out North and Central America,0.6,30.0,3.0,True,1.0,0.9306,0.767,0.9644
+rule,leave out North and Central America,0.62,30.0,3.0,True,1.0,0.9306,0.767,0.9644
+rule,leave out North and Central America,0.64,30.0,4.0,True,1.0,0.9332,0.8125,0.9547
+rule,leave out North and Central America,0.66,30.0,4.0,True,1.0,0.9332,0.8125,0.9547
+rule,leave out North and Central America,0.68,30.0,4.0,True,1.0,0.9332,0.8125,0.9547
+rule,leave out North and Central America,0.7,30.0,4.0,True,1.0,0.9332,0.8125,0.9547
+rule,leave out North and Central America,0.72,30.0,4.0,True,1.0,0.9332,0.8125,0.9547
+rule,leave out North and Central America,0.74,30.0,4.0,True,1.0,0.9332,0.8125,0.9547
+rule,leave out North and Central America,0.76,30.0,5.0,True,1.0,0.9311,0.8413,0.9452
+rule,leave out North and Central America,0.78,30.0,5.0,True,1.0,0.9311,0.8413,0.9452
+rule,leave out North and Central America,0.8,30.0,5.0,True,1.0,0.9311,0.8413,0.9452
+rule,leave out North and Central America,0.82,30.0,6.0,True,1.0,0.9267,0.8597,0.936
+rule,leave out North and Central America,0.84,30.0,7.0,True,1.0,0.9211,0.8722,0.9272
+rule,leave out North and Central America,0.86,30.0,9.0,True,1.0,0.9086,0.8868,0.9108
+rule,leave out North and Central America,0.88,30.0,11.0,True,1.0,0.8953,0.8941,0.8953
+rule,leave out North and Central America,0.9,30.0,14.0,True,1.0,0.8755,0.9038,0.8741
+rule,leave out North and Central America,0.92,30.0,25.0,True,1.0,0.8404,0.73,0.8408
+rule,leave out North and Central America,0.94,30.0,27.0,True,1.0,0.8388,0.4568,0.8393
+rule,leave out North and Central America,0.96,30.0,29.0,True,1.0,0.8387,0.1739,0.8389
+rule,leave out North and Central America,0.98,17.0,,False,0.9801,0.8536,,0.8536
+rule,leave out North and Central America,0.99,7.0,,False,0.9002,0.9189,,0.9189
+rule,leave out Brazil,0.6,30.0,3.0,True,1.0,0.9162,0.4127,0.9897
+rule,leave out Brazil,0.62,30.0,3.0,True,1.0,0.9162,0.4127,0.9897
+rule,leave out Brazil,0.64,30.0,3.0,True,1.0,0.9162,0.4127,0.9897
+rule,leave out Brazil,0.66,30.0,3.0,True,1.0,0.9162,0.4127,0.9897
+rule,leave out Brazil,0.68,30.0,3.0,True,1.0,0.9162,0.4127,0.9897
+rule,leave out Brazil,0.7,30.0,4.0,True,1.0,0.9397,0.5067,0.987
+rule,leave out Brazil,0.72,30.0,4.0,True,1.0,0.9397,0.5067,0.987
+rule,leave out Brazil,0.74,30.0,4.0,True,1.0,0.9397,0.5067,0.987
+rule,leave out Brazil,0.76,30.0,4.0,True,1.0,0.9397,0.5067,0.987
+rule,leave out Brazil,0.78,30.0,4.0,True,1.0,0.9397,0.5067,0.987
+rule,leave out Brazil,0.8,30.0,4.0,True,1.0,0.9397,0.5067,0.987
+rule,leave out Brazil,0.82,30.0,5.0,True,1.0,0.9518,0.5822,0.9845
+rule,leave out Brazil,0.84,30.0,6.0,True,1.0,0.9583,0.6441,0.9817
+rule,leave out Brazil,0.86,30.0,7.0,True,1.0,0.9617,0.6922,0.9791
+rule,leave out Brazil,0.88,30.0,9.0,True,1.0,0.9645,0.7678,0.9746
+rule,leave out Brazil,0.9,30.0,13.0,True,1.0,0.9627,0.8635,0.9661
+rule,leave out Brazil,0.92,30.0,27.0,True,1.0,0.941,1.0,0.9408
+rule,leave out Brazil,0.94,30.0,28.0,True,1.0,0.94,1.0,0.9399
+rule,leave out Brazil,0.96,28.0,,False,0.9993,0.9391,,0.9391
+rule,leave out Brazil,0.98,10.0,,False,0.9599,0.9705,,0.9705
+rule,leave out Brazil,0.99,4.0,,False,0.9188,0.9845,,0.9845
+rule,leave out Australia,0.6,30.0,3.0,True,1.0,0.9886,0.5322,0.9988
+rule,leave out Australia,0.62,30.0,3.0,True,1.0,0.9886,0.5322,0.9988
+rule,leave out Australia,0.64,30.0,3.0,True,1.0,0.9886,0.5322,0.9988
+rule,leave out Australia,0.66,30.0,3.0,True,1.0,0.9886,0.5322,0.9988
+rule,leave out Australia,0.68,30.0,4.0,True,1.0,0.9939,0.7145,0.9983
+rule,leave out Australia,0.7,30.0,4.0,True,1.0,0.9939,0.7145,0.9983
+rule,leave out Australia,0.72,30.0,4.0,True,1.0,0.9939,0.7145,0.9983
+rule,leave out Australia,0.74,30.0,4.0,True,1.0,0.9939,0.7145,0.9983
+rule,leave out Australia,0.76,30.0,4.0,True,1.0,0.9939,0.7145,0.9983
+rule,leave out Australia,0.78,30.0,5.0,True,1.0,0.9952,0.8019,0.9978
+rule,leave out Australia,0.8,30.0,5.0,True,1.0,0.9952,0.8019,0.9978
+rule,leave out Australia,0.82,30.0,6.0,True,1.0,0.9956,0.8532,0.9974
+rule,leave out Australia,0.84,30.0,7.0,True,1.0,0.9956,0.8811,0.9968
+rule,leave out Australia,0.86,30.0,8.0,True,1.0,0.9954,0.9024,0.9963
+rule,leave out Australia,0.88,30.0,11.0,True,1.0,0.9945,0.9333,0.995
+rule,leave out Australia,0.9,30.0,15.0,True,1.0,0.9929,0.9529,0.9932
+rule,leave out Australia,0.92,30.0,27.0,True,1.0,0.9876,0.9323,0.9876
+rule,leave out Australia,0.94,30.0,28.0,True,1.0,0.9874,0.9145,0.9875
+rule,leave out Australia,0.96,21.0,,False,0.998,0.989,,0.989
+rule,leave out Australia,0.98,8.0,,False,0.9905,0.9959,,0.9959
+rule,leave out Australia,0.99,3.0,,False,0.9844,0.9983,,0.9983
+rule,leave out India,0.6,30.0,4.0,True,1.0,0.9781,0.8649,0.9888
+rule,leave out India,0.62,30.0,4.0,True,1.0,0.9781,0.8649,0.9888
+rule,leave out India,0.64,30.0,4.0,True,1.0,0.9781,0.8649,0.9888
+rule,leave out India,0.66,30.0,4.0,True,1.0,0.9781,0.8649,0.9888
+rule,leave out India,0.68,30.0,4.0,True,1.0,0.9781,0.8649,0.9888
+rule,leave out India,0.7,30.0,4.0,True,1.0,0.9781,0.8649,0.9888
+rule,leave out India,0.72,30.0,5.0,True,1.0,0.9769,0.8741,0.9862
+rule,leave out India,0.74,30.0,5.0,True,1.0,0.9769,0.8741,0.9862
+rule,leave out India,0.76,30.0,5.0,True,1.0,0.9769,0.8741,0.9862
+rule,leave out India,0.78,30.0,6.0,True,1.0,0.9754,0.8807,0.9835
+rule,leave out India,0.8,30.0,7.0,True,1.0,0.9736,0.8865,0.9807
+rule,leave out India,0.82,30.0,8.0,True,1.0,0.9718,0.8916,0.9781
+rule,leave out India,0.84,30.0,9.0,True,1.0,0.97,0.8966,0.9755
+rule,leave out India,0.86,30.0,11.0,True,1.0,0.9664,0.9052,0.9705
+rule,leave out India,0.88,30.0,14.0,True,1.0,0.9604,0.9138,0.9631
+rule,leave out India,0.9,30.0,,False,1.0,0.9152,,0.9152
+rule,leave out India,0.92,30.0,,False,1.0,0.9152,,0.9152
+rule,leave out India,0.94,30.0,,False,1.0,0.9152,,0.9152
+rule,leave out India,0.96,30.0,,False,1.0,0.9152,,0.9152
+rule,leave out India,0.98,11.0,,False,0.9398,0.968,,0.968
+rule,leave out India,0.99,4.0,,False,0.9175,0.9862,,0.9862
+rule,leave out Nigeria,0.6,30.0,3.0,True,1.0,0.981,0.5064,0.9971
+rule,leave out Nigeria,0.62,30.0,3.0,True,1.0,0.981,0.5064,0.9971
+rule,leave out Nigeria,0.64,30.0,3.0,True,1.0,0.981,0.5064,0.9971
+rule,leave out Nigeria,0.66,30.0,3.0,True,1.0,0.981,0.5064,0.9971
+rule,leave out Nigeria,0.68,30.0,3.0,True,1.0,0.981,0.5064,0.9971
+rule,leave out Nigeria,0.7,30.0,4.0,True,1.0,0.9885,0.6699,0.9961
+rule,leave out Nigeria,0.72,30.0,4.0,True,1.0,0.9885,0.6699,0.9961
+rule,leave out Nigeria,0.74,30.0,4.0,True,1.0,0.9885,0.6699,0.9961
+rule,leave out Nigeria,0.76,30.0,4.0,True,1.0,0.9885,0.6699,0.9961
+rule,leave out Nigeria,0.78,30.0,5.0,True,1.0,0.9895,0.7213,0.9951
+rule,leave out Nigeria,0.8,30.0,5.0,True,1.0,0.9895,0.7213,0.9951
+rule,leave out Nigeria,0.82,30.0,6.0,True,1.0,0.9894,0.7399,0.9941
+rule,leave out Nigeria,0.84,30.0,6.0,True,1.0,0.9894,0.7399,0.9941
+rule,leave out Nigeria,0.86,30.0,8.0,True,1.0,0.9886,0.7543,0.9923
+rule,leave out Nigeria,0.88,30.0,9.0,True,1.0,0.9881,0.7579,0.9916
+rule,leave out Nigeria,0.9,30.0,12.0,True,1.0,0.9866,0.7674,0.9891
+rule,leave out Nigeria,0.92,30.0,18.0,True,1.0,0.9833,0.7455,0.9846
+rule,leave out Nigeria,0.94,30.0,28.0,True,1.0,0.9807,0.7396,0.9808
+rule,leave out Nigeria,0.96,23.0,,False,0.9981,0.9818,,0.9818
+rule,leave out Nigeria,0.98,8.0,,False,0.9853,0.9916,,0.9916
+rule,leave out Nigeria,0.99,3.0,,False,0.9767,0.9961,,0.9961
+rule,leave out DR Congo,0.6,30.0,3.0,True,1.0,0.9884,0.0326,0.9999
+rule,leave out DR Congo,0.62,30.0,3.0,True,1.0,0.9884,0.0326,0.9999
+rule,leave out DR Congo,0.64,30.0,3.0,True,1.0,0.9884,0.0326,0.9999
+rule,leave out DR Congo,0.66,30.0,3.0,True,1.0,0.9884,0.0326,0.9999
+rule,leave out DR Congo,0.68,30.0,3.0,True,1.0,0.9884,0.0326,0.9999
+rule,leave out DR Congo,0.7,30.0,3.0,True,1.0,0.9884,0.0326,0.9999
+rule,leave out DR Congo,0.72,30.0,4.0,True,1.0,0.9969,0.1038,0.9998
+rule,leave out DR Congo,0.74,30.0,4.0,True,1.0,0.9969,0.1038,0.9998
+rule,leave out DR Congo,0.76,30.0,4.0,True,1.0,0.9969,0.1038,0.9998
+rule,leave out DR Congo,0.78,30.0,4.0,True,1.0,0.9969,0.1038,0.9998
+rule,leave out DR Congo,0.8,30.0,5.0,True,1.0,0.9987,0.2237,0.9998
+rule,leave out DR Congo,0.82,30.0,6.0,True,1.0,0.9992,0.3153,0.9997
+rule,leave out DR Congo,0.84,30.0,7.0,True,1.0,0.9993,0.3672,0.9997
+rule,leave out DR Congo,0.86,30.0,8.0,True,1.0,0.9994,0.408,0.9997
+rule,leave out DR Congo,0.88,30.0,10.0,True,1.0,0.9995,0.5259,0.9997
+rule,leave out DR Congo,0.9,30.0,14.0,True,1.0,0.9995,0.5952,0.9996
+rule,leave out DR Congo,0.92,30.0,27.0,True,1.0,0.9995,,0.9995
+rule,leave out DR Congo,0.94,29.0,28.0,True,1.0,0.9995,,0.9995
+rule,leave out DR Congo,0.96,15.0,,False,0.9999,0.9996,,0.9996
+rule,leave out DR Congo,0.98,6.0,,False,0.9994,0.9997,,0.9997
+rule,leave out DR Congo,0.99,2.0,,False,0.9881,0.9999,,0.9999

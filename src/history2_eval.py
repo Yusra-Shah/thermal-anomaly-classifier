@@ -49,12 +49,9 @@ SPACE = {
 
 
 def prepare():
-    df = add_features(add_label(load_raw()))
-    df = add_history_v2(add_history(df))      # history sees every detection, before dropping types
-    df = df[df["type"].isin([0, 2])].reset_index(drop=True)
-    df[TARGET] = (df["type"] == 2).astype(int)
-    df["region"] = df["source_file"].map(REGIONS)
-    return df
+    """All region files, one file at a time (src/worlddata.py)."""
+    from .worlddata import prepare as world_prepare
+    return world_prepare()
 
 
 def sample_configs():

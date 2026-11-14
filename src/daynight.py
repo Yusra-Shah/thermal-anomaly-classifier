@@ -147,8 +147,8 @@ def stage_tables(df, splits, store):
     """Per split: y, night, scores and thresholds of the instant (random forest), history and rule tiers."""
     from .history2_ops import thresholds as hist_thresholds
     from .history_eval import RULE_COL, choose_k
-    from .uncertain import compute_instant_rf, history_scores
-    inst = compute_instant_rf(df, splits)
+    from .uncertain import compute_instant, history_scores
+    inst = compute_instant(df, splits)
     hist = history_scores(df, splits)
     for name, (tr, te, _) in splits.items():
         key = ("tables", name)
@@ -165,12 +165,12 @@ def stage_tables(df, splits, store):
     _save(store)
 
 
-def stage_xgb(df, splits, store):
+def stage_xgb(df, splits, store, ablation=True):
     """Full XGBoost instant model on the grouped and temporal splits, and the ablation on the grouped split."""
     for name in (GROUPED, "temporal"):
         tr, te, _ = splits[name]
         Xtr, ytr, gtr = df.iloc[tr], df.iloc[tr][TARGET].to_numpy(), df.iloc[tr]["cell_id"].to_numpy()
-        sets = feature_sets() if name == GROUPED else {"full model": list(FEATURES)}
+        sets = feature_sets() if (name == GROUPED and ablation) else {"full model": list(FEATURES)}
         for variant, feats in sets.items():
             key = ("xgb", name, variant)
             if key in store:
@@ -180,12 +180,19 @@ def stage_xgb(df, splits, store):
             store[key] = {"p": p.astype(np.float32), "oof": oof.astype(np.float32), "thr": thr, "feats": feats}
             if name == GROUPED and variant == "full model":
                 joblib.dump({"model": model, "features": feats, "threshold": thr}, PROC_DIR / "daynight_xgb_full.joblib")
-                imp = permutation_importance(model, df.iloc[te], df.iloc[te][TARGET].to_numpy(), feats, thr)
-                imp.round(4).to_csv(REPORT_DIR / "daynight_permutation.csv", index=False)
-                print(imp.round(4).to_string(index=False), flush=True)
             del model
             _save(store)
             print("xgb", name, variant, "done", flush=True)
+
+
+def stage_permutation(df, splits):
+    """Permutation importance of the saved full XGBoost model on the held out grouped split."""
+    saved = joblib.load(PROC_DIR / "daynight_xgb_full.joblib")
+    _, te, _ = splits[GROUPED]
+    imp = permutation_importance(saved["model"], df.iloc[te], df.iloc[te][TARGET].to_numpy(), saved["features"],
+                                 saved["threshold"])
+    imp.round(4).to_csv(REPORT_DIR / "daynight_permutation.csv", index=False)
+    print(imp.round(4).to_string(index=False), flush=True)
 
 
 def stage_transfer(df, splits, store):
@@ -198,7 +205,6 @@ def stage_transfer(df, splits, store):
     k = choose_k(df.iloc[tr])
     inst_b = joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
     hist_b = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")
-    xg = joblib.load(PROC_DIR / "daynight_xgb_full.joblib") if (PROC_DIR / "daynight_xgb_full.joblib").exists() else None
     for sat in ("noaa20", "noaa21"):
         key = ("transfer", sat)
         if key in store:
@@ -210,8 +216,6 @@ def stage_transfer(df, splits, store):
                  "history": (hist_b["model"].predict_proba(d[hist_b["features"]])[:, 1],
                              float(hist_b["thresholds"]["precision >= 0.90"])),
                  "rule": (d[RULE_COL].to_numpy(float), float(k))}
-        if xg is not None:
-            entry["instant_xgb"] = (xg["model"].predict_proba(d[xg["features"]])[:, 1], float(xg["threshold"]))
         store[key] = entry
         del d
         _save(store)
@@ -225,14 +229,8 @@ def build_tables(store, splits):
     sets += [(f"{sat.upper()[:4]}-{sat[-2:]} cell disjoint", store[("transfer", sat)])
              for sat in ("noaa20", "noaa21") if ("transfer", sat) in store]
     for name, e in sets:
-        tiers = {"instant (random forest, replaced)": e["instant"], "history": e["history"],
+        tiers = {"instant (XGBoost, shipped)": e["instant"], "history": e["history"],
                  "rule (days in prior 30)": e["rule"], "night baseline": night_baseline(e["night"])}
-        if "instant_xgb" in e:
-            tiers["instant (XGBoost, shipped)"] = e["instant_xgb"]
-        for split_key in (name,):
-            x = store.get(("xgb", split_key, "full model"))
-            if x is not None and "instant_xgb" not in e:
-                tiers["instant (XGBoost, shipped)"] = (np.asarray(x["p"], float), x["thr"])
         for tier, (score, thr) in tiers.items():
             for r in stratified(e["y"], score, thr, e["night"]):
                 rows.append({"split": name, "tier": tier, **r})
@@ -289,9 +287,8 @@ def build_xgb_vs_rf(store, splits):
 
 def ship_xgb_instant(df, splits):
     """Make the XGBoost instant model the app's instant model: models/best_model_headline.joblib (model,
-    features, threshold from out of fold scores) and the archive scores in scored_headline.parquet. The
-    bands and the calibrator are added afterwards by python -m src.uncertain, the same procedure as before.
-    The old random forest bundle must be backed up outside the repo before this runs."""
+    features, threshold from out of fold scores) and the archive scores in scored_headline.parquet for every row.
+    The bands and the calibrator are added afterwards by python -m src.uncertain, the same procedure as before."""
     store = _load()
     x = store[("xgb", GROUPED, "full model")]
     saved = joblib.load(PROC_DIR / "daynight_xgb_full.joblib")
@@ -305,16 +302,18 @@ def ship_xgb_instant(df, splits):
     joblib.dump(bundle, tmp)
     tmp.replace(path)
     print("saved", path.name, round(path.stat().st_size / 1e6, 2), "MB")
-    old = pd.read_parquet(PROC_DIR / "scored_headline.parquet")
-    keys = ["latitude", "longitude", "acq_date", "bright_ti4", "frp"]
-    assert len(old) == len(df) and all(np.array_equal(old[k].to_numpy(), df[k].to_numpy()) for k in keys),         "scored_headline.parquet rows differ from the prepared data"
+    keep = ["latitude", "longitude", "acq_date", "timestamp", "bright_ti4", "bright_ti5", "frp", "confidence_ord",
+            "is_night", "cell_id", "cell_days", TARGET]
+    out = df[keep].copy()
     p = saved["model"].predict_proba(df[bundle["features"]])[:, 1]
-    old["p_static"] = p
-    old["pred_static"] = (p >= bundle["threshold"]).astype(int)
-    old.to_parquet(PROC_DIR / "scored_headline.parquet", index=False)
-    held = old[old["in_test"]]
-    print("held out precision", precision_score(held["is_static"], held["pred_static"]),
-          "recall", recall_score(held["is_static"], held["pred_static"]))
+    out["p_static"] = p.astype(np.float32)
+    out["pred_static"] = (p >= bundle["threshold"]).astype(np.int8)
+    out["in_test"] = False
+    out.loc[out.index[te], "in_test"] = True
+    out.to_parquet(PROC_DIR / "scored_headline.parquet", index=False)
+    held = out[out["in_test"]]
+    print("held out precision", precision_score(held[TARGET], held["pred_static"]),
+          "recall", recall_score(held[TARGET], held["pred_static"]))
 
 
 def main(argv=None):
@@ -329,7 +328,8 @@ def main(argv=None):
     if stage in ("tables", "all"):
         stage_tables(df, splits, store)
     if stage in ("xgb", "all"):
-        stage_xgb(df, splits, store)
+        stage_xgb(df, splits, store, ablation="--no-ablation" not in argv)
+        stage_permutation(df, splits)
     if stage in ("transfer", "all"):
         stage_transfer(df, splits, store)
     if stage == "ship":
@@ -338,8 +338,9 @@ def main(argv=None):
     pd.set_option("display.width", 250, "display.max_columns", 30)
     out, cmp_ = build_tables(store, splits)
     print(cmp_.round(3).to_string(index=False))
-    print(build_xgb_vs_rf(store, splits).round(4).to_string(index=False))
     print(build_ablation(df, splits, store).round(3).to_string(index=False))
+    from .mem import report
+    report(f"daynight {stage}")
 
 
 if __name__ == "__main__":

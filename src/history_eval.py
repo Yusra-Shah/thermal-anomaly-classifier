@@ -35,11 +35,7 @@ FOLDS = 3
 COMPLETE_DAYS = 30
 RULE_COL = "distinct_days_prior_30"
 SPLIT_DATE = pd.Timestamp("2025-05-01")
-REGIONS = {
-    "fire_archive_SV-C2_812937.csv": "South Asia",
-    "fire_archive_SV-C2_812939.csv": "Southeast Asia",
-    "fire_archive_SV-C2_812940.csv": "North and Central America",
-}
+from .regions import FILE_REGION as REGIONS  # noqa: E402
 
 
 def prepare():

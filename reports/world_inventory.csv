@@ -1,0 +1,9 @@
+file,region,country,rows,has_type,type0,type2,other_types,rows_kept,static_share,date_min,date_max
+fire_archive_SV-C2_812937.csv,South Asia,Pakistan,46922,True,45514,1395,13,46909,0.0297,2025-01-01,2025-06-30
+fire_archive_SV-C2_812939.csv,Southeast Asia,Indonesia,15275,True,10211,3823,1241,14034,0.2724,2025-01-01,2025-06-30
+fire_archive_SV-C2_812940.csv,North and Central America,United States,205088,True,165181,31717,8190,196898,0.1611,2025-01-01,2025-06-30
+fire_archive_SV-C2_847281.csv,Brazil,Brazil,118098,True,110524,7252,322,117776,0.0616,2025-01-01,2025-06-30
+fire_archive_SV-C2_847293.csv,Australia,Australia,413247,True,407658,5285,304,412943,0.0128,2025-01-01,2025-06-30
+fire_archive_SV-C2_847296.csv,India,India,514307,True,470131,43547,629,513678,0.0848,2025-01-01,2025-06-30
+fire_archive_SV-C2_847301.csv,Nigeria,Nigeria,333089,True,326378,6467,244,332845,0.0194,2025-01-01,2025-06-30
+fire_archive_SV-C2_847305.csv,DR Congo,Democratic Republic of the Congo,722519,True,713669,365,8485,714034,0.0005,2025-01-01,2025-06-30

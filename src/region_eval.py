@@ -15,11 +15,7 @@ from .features import add_features
 from .label import add_label
 from .train import best_threshold, build_models, score
 
-REGIONS = {
-    "fire_archive_SV-C2_812937.csv": "South Asia",
-    "fire_archive_SV-C2_812939.csv": "Southeast Asia",
-    "fire_archive_SV-C2_812940.csv": "North and Central America",
-}
+from .regions import FILE_REGION as REGIONS  # noqa: E402
 MODELS = ["Random Forest", "XGBoost"]
 
 

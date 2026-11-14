@@ -29,6 +29,7 @@ def models():
 def run(fetch, models, **kw):
     kw.setdefault("sleep", lambda s: None)
     kw.setdefault("log", lambda *a: None)
+    kw.setdefault("limiter", fake.fast_limiter())
     return ingest.run_once(KEY, fetch=fetch, models=models, **kw)
 
 
@@ -162,14 +163,14 @@ def test_history_stays_inside_one_sensor(live_dir, models):
 
 def test_day_range_pause_and_boxes(live_dir, models):
     log, waits = [], []
-    run(fake.fetch_factory(fake.masters(3), log), models, sleep=waits.append)
+    run(fake.fetch_factory(fake.masters(3), log), models, sleep=waits.append, limiter=fake.fast_limiter())
     assert log and all(1 <= days <= 5 for _, days, _, _ in log)
     assert {src for _, _, src, _ in log} == set(live.LIVE_SOURCES.values())
     assert {box for _, _, _, box in log} == {live.REGIONS[r] for r in live.TRAINED}
     assert len(waits) == len(log) and all(w == live.PAUSE for w in waits)           # a short wait after every call
     # the first run asks for 90 days in chunks of at most 5, per sensor and region
     per = [(src, box) for _, _, src, box in log]
-    assert len(log) == 2 * 3 * 18 and per.count((live.LIVE_SOURCES["NOAA-20"], live.REGIONS["South Asia"])) == 18
+    assert len(log) == 2 * len(ingest.region_names()) * 18 and per.count((live.LIVE_SOURCES["NOAA-20"], live.REGIONS["South Asia"])) == 18
 
 
 def test_rate_limiter_waits_inside_the_window():
@@ -217,11 +218,12 @@ def test_key_never_printed(live_dir, models, capsys, monkeypatch):
 
     for fetch, want in ((raw_fetch, "Odd, HTTP status none"), (boom_fetch, "ConnectionError, HTTP status none"),
                         (refused_fetch, "HTTP status 403")):
-        r = ingest.run_once(KEY, fetch=fetch, models=models, sleep=lambda s: None, log=print, today=fake.today())
+        r = ingest.run_once(KEY, fetch=fetch, models=models, sleep=lambda s: None, log=print, today=fake.today(),
+                            limiter=fake.fast_limiter())
         out = capsys.readouterr()
         text = out.out + out.err
         assert KEY not in text and "://" not in text and "firms.example" not in text, (want, text[:200])
-        assert want in text and r["failures"] == 2 * 3
+        assert want in text and r["failures"] == 2 * len(ingest.region_names())
     # the command line path too, with a fake key in the environment
     monkeypatch.setenv("FIRMS_MAP_KEY", KEY)
     monkeypatch.setattr(live, "fetch_chunk", boom_fetch)

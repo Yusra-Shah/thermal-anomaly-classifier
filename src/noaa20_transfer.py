@@ -28,6 +28,7 @@ from .history import add_history, add_history_v2
 from .history_eval import RULE_COL, choose_k
 from .label import add_label
 from .noaa20 import REGION_COUNTRY, out_dir
+from .regions import FILE_REGION as FILE_REGION_ALL, ORIGINAL
 
 NAMES = {"noaa20": "NOAA-20", "noaa21": "NOAA-21"}
 
@@ -37,8 +38,7 @@ def file_region(sat="noaa20"):
 
 
 FILE_REGION = file_region("noaa20")
-SNPP_REGION = {"fire_archive_SV-C2_812937.csv": "South Asia", "fire_archive_SV-C2_812939.csv": "Southeast Asia",
-               "fire_archive_SV-C2_812940.csv": "North and Central America"}
+SNPP_REGION = {f: r for f, r in FILE_REGION_ALL.items() if r in ORIGINAL}
 SEED = 42
 SENSOR_NAME = {"noaa20": "NOAA-20", "noaa21": "NOAA-21", "snpp": "Suomi NPP"}
 
@@ -144,7 +144,7 @@ def main(sat="noaa20"):
     # sensor comparison on a few days, all rows (not only types 0 and 2), same country cut
     raw_n = load_raw(sorted(out_dir(sat).glob(f"{sat}_*.csv")))
     raw_n["region"] = raw_n["source_file"].map(fr)
-    raw_s = load_raw()
+    raw_s = load_raw([RAW_DIR / f for f in SNPP_REGION])          # the three original country files
     raw_s["region"] = raw_s["source_file"].map(SNPP_REGION)
     days = [pd.Timestamp(d) for d in ("2025-01-15", "2025-02-15", "2025-03-15", "2025-04-15", "2025-05-15",
                                        "2025-06-15")]
@@ -283,3 +283,5 @@ def write_summary(out, cmp_, counts, disjoint_share, k, sat="noaa20", extra=None
 if __name__ == "__main__":
     import sys
     main(sys.argv[1] if len(sys.argv) > 1 else "noaa20")
+    from .mem import report
+    report("noaa20_transfer")

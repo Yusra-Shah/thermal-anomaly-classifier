@@ -474,6 +474,8 @@ def main():
     print(show[cols].round(4).to_string())
     print(reg[reg["definition"] == DEF_DEFAULT].round(3).to_string())
     print(pd.DataFrame(cal_rows).round(4).to_string())
+    from .mem import report
+    report("uncertain")
 
 
 def plot_curves(curves, ev, definition, fname, note):

@@ -311,10 +311,18 @@ def page_html(a):
     return els[-1].proto.srcdoc
 
 
+def demo_files():
+    """Raw files of the demo snapshots: the three original regions and Brazil, a new region that is small.
+    The other region files are big and add nothing to what the app tests check."""
+    from src.region_eval import REGIONS
+    keep = ("South Asia", "Southeast Asia", "North and Central America", "Brazil")
+    return {f: r for f, r in REGIONS.items() if r in keep}
+
+
 def build_demo(tmp):
     from src import live_demo
     from src.config import RAW_DIR
-    from src.region_eval import REGIONS as FILES
+    FILES = demo_files()
     live.LIVE_DIR = Path(tmp)
     for fname, region in FILES.items():
         live_demo.build(region, RAW_DIR / fname)
@@ -414,7 +422,7 @@ def test_app_store(tmp):
     from tests import fake_feed
     live.LIVE_DIR = Path(tmp)
     ingest.run_once("fake", fetch=fake_feed.fetch_factory(fake_feed.masters(10)), sleep=lambda s: None,
-                    log=lambda *a: None)
+                    log=lambda *a: None, limiter=fake_feed.fast_limiter())
     store = ingest.read_store()
     at = None
     gc.collect()
@@ -450,7 +458,7 @@ def test_app_demo(tmp):
 
     from src.config import RAW_DIR
     from src import live_demo
-    from src.region_eval import REGIONS as FILES
+    FILES = demo_files()
     regions = build_demo(tmp)
     for fname, region in FILES.items():
         assert live.snapshot_is_demo(region)

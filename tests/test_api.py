@@ -41,7 +41,7 @@ def client(live_dir):
 def store(live_dir):
     """A real store built by the ingest job from the fake feed (8 days, both sensors)."""
     ingest.run_once(KEY, fetch=fake.fetch_factory(fake.masters(8)), models=api.get_models(),
-                    sleep=lambda s: None, log=lambda *a: None)
+                    sleep=lambda s: None, log=lambda *a: None, limiter=fake.fast_limiter())
     return ingest.read_store()
 
 

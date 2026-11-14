@@ -2,17 +2,17 @@ NOAA-21 transfer summary
 
 Models trained on Suomi NPP train cells (seed 42 grouped split), tested on NOAA-21. Thresholds, calibrators and bands come from Suomi NPP out of fold training scores, unchanged. The label is NASA's repeat based type flag, not independent truth. The satellites observe the same places within a short time of each other (see the offsets below), so the test is a transfer between near twins, not an independent check.
 
-Share of NOAA-21 rows in cells unseen in Suomi NPP training: 0.446. Rule k: 3.
+Share of NOAA-21 rows in cells unseen in Suomi NPP training: 0.446. Rule k: 5.
 
-history, Suomi NPP held out cells (reference): n 52354, static PR-AUC 0.932 (majority 0.153), precision 0.894, recall 0.840, F1 0.866
-history, cell disjoint: n 111145, static PR-AUC 0.914 (majority 0.070), precision 0.877, recall 0.828, F1 0.852
-history, not cell disjoint: n 138152, static PR-AUC 0.943 (majority 0.203), precision 0.896, recall 0.843, F1 0.869
-instant, Suomi NPP held out cells (reference): n 52354, static PR-AUC 0.507 (majority 0.153), precision 0.456, recall 0.816, F1 0.585
-instant, cell disjoint: n 111145, static PR-AUC 0.359 (majority 0.070), precision 0.305, recall 0.815, F1 0.444
-instant, not cell disjoint: n 138152, static PR-AUC 0.539 (majority 0.203), precision 0.478, recall 0.831, F1 0.607
-rule, Suomi NPP held out cells (reference): n 52354, static PR-AUC 0.780 (majority 0.153), precision 0.768, recall 0.829, F1 0.798
-rule, cell disjoint: n 111145, static PR-AUC 0.726 (majority 0.070), precision 0.758, recall 0.800, F1 0.779
-rule, not cell disjoint: n 138152, static PR-AUC 0.782 (majority 0.203), precision 0.767, recall 0.806, F1 0.786
+history, Suomi NPP held out cells (reference): n 470027, static PR-AUC 0.905 (majority 0.042), precision 0.893, recall 0.781, F1 0.833
+history, cell disjoint: n 111224, static PR-AUC 0.921 (majority 0.068), precision 0.927, recall 0.668, F1 0.776
+history, not cell disjoint: n 138073, static PR-AUC 0.920 (majority 0.204), precision 0.917, recall 0.702, F1 0.796
+instant, Suomi NPP held out cells (reference): n 470027, static PR-AUC 0.244 (majority 0.042), precision 0.232, recall 0.575, F1 0.331
+instant, cell disjoint: n 111224, static PR-AUC 0.311 (majority 0.068), precision 0.315, recall 0.698, F1 0.434
+instant, not cell disjoint: n 138073, static PR-AUC 0.495 (majority 0.204), precision 0.491, recall 0.700, F1 0.577
+rule, Suomi NPP held out cells (reference): n 470027, static PR-AUC 0.768 (majority 0.042), precision 0.818, recall 0.788, F1 0.803
+rule, cell disjoint: n 111224, static PR-AUC 0.798 (majority 0.068), precision 0.859, recall 0.690, F1 0.766
+rule, not cell disjoint: n 138073, static PR-AUC 0.763 (majority 0.204), precision 0.823, recall 0.684, F1 0.747
 
 Row counts per region (country cut):
                    region  noaa21_rows  snpp_rows    ratio

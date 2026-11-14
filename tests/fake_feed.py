@@ -8,6 +8,16 @@ BOX = live.REGIONS["South Asia"]
 STATIC = [(28.6 + i * 0.5, 70.0 + i * 0.7) for i in range(6)]
 
 
+def fast_limiter():
+    """A rate limiter on a fake clock: a wait moves the clock instead of blocking, so tests never wait."""
+    from src import ingest
+    clock = {"t": 0.0}
+
+    def sleep(seconds):
+        clock["t"] += seconds
+    return ingest.RateLimiter(clock=lambda: clock["t"], sleep=sleep)
+
+
 def today():
     return pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
 

@@ -38,15 +38,23 @@ KEEP_DAYS = 60
 REFETCH_DAYS = 3
 TIMEOUT = 60
 
-# West, south, east, north. South Asia, Southeast Asia and North and Central America are the
-# extents of the three training files behind src/region_eval.py, rounded outward.
+# West, south, east, north. The first three are the extents of the original training files, rounded outward.
+# The others are rounded boxes around the country files added later (Brazil, Australia, India, Nigeria and
+# DR Congo). Boxes are not country borders: a box can hold detections of a neighbour, and the South Asia and
+# India boxes overlap, where a detection is stored once (the first region that holds it).
 REGIONS = {
     "South Asia": (61.0, 24.0, 76.0, 36.0),
     "Southeast Asia": (95.0, -11.0, 141.0, 6.0),
     "North and Central America": (-177.0, 19.0, -67.0, 71.0),
+    "Brazil": (-74.0, -34.0, -34.0, 6.0),
+    "Australia": (113.0, -44.0, 154.0, -11.0),
+    "India": (68.0, 8.0, 98.0, 35.0),
+    "Nigeria": (2.0, 4.0, 15.0, 14.0),
+    "DR Congo": (12.0, -14.0, 32.0, 6.0),
     "Europe (not in training)": (-10.0, 36.0, 40.0, 70.0),
 }
-TRAINED = {"South Asia", "Southeast Asia", "North and Central America"}
+TRAINED = {"South Asia", "Southeast Asia", "North and Central America", "Brazil", "Australia", "India",
+           "Nigeria", "DR Congo"}
 
 
 class FirmsError(RuntimeError):

@@ -1,5 +1,5 @@
 tier,split,chosen,oof_brier_platt,oof_brier_isotonic,test_brier_raw,test_brier_calibrated,test_ece_raw,test_ece_calibrated,n_test
-history,grouped seed 42,platt,0.0269,0.0269,0.0376,0.0279,0.0456,0.004,52354
-history,temporal,platt,0.0269,0.0269,0.0463,0.0319,0.0571,0.0113,85955
-instant,grouped seed 42,platt,0.0845,0.0845,0.1391,0.0909,0.1738,0.0095,52354
-instant,temporal,platt,0.0737,0.0737,0.1832,0.1122,0.211,0.0194,85955
+history,grouped seed 42,isotonic,0.0081,0.0081,0.0157,0.0081,0.028,0.0007,470027
+history,temporal,isotonic,0.0096,0.0096,0.0131,0.0064,0.0235,0.0022,831323
+instant,grouped seed 42,platt,0.0349,0.0349,0.1321,0.0348,0.2251,0.0017,470027
+instant,temporal,isotonic,0.0373,0.0373,0.1214,0.0308,0.2218,0.0059,831323

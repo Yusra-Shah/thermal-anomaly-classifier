@@ -4,6 +4,7 @@ Run from the project root:
     python -m src.ingest --once
     python -m src.ingest --loop --every-minutes 180
     python -m src.ingest --import-live          # one off: take the rolling stores of src/live.py into the store
+    python -m src.ingest --rebuild-score        # score every stored row again with the saved models, no fetch
 
 One store, data/live/store.parquet (git ignores data/live), written atomically (temporary file, then
 replace). Rows are unique on sensor, latitude, longitude, acq_date and acq_time, so running twice in a
@@ -243,13 +244,43 @@ def import_live(models=None, log=print):
     return run_once(fetch=None, extra=extra, models=models, log=log)
 
 
+def rebuild_score(models=None, path=None, log=print):
+    """Score every stored row again with the saved models, calibrators and bands, without fetching. Run it
+    after the models change. Rows, ingest times and the 90 day window are kept; features and history are
+    rebuilt per sensor and region from the stored readings. Atomic write."""
+    path = path or store_path()
+    old = read_store(path)
+    if old is None or old.empty:
+        log("no store to score")
+        return {"rows": 0}
+    models = models or serve.Models()
+    times = old.set_index(KEY_COLS)["ingest_time"]
+    parts = []
+    for (sensor, region), g in old.groupby(["sensor", "region"], sort=True):
+        scored = score_group(g[RAW_COLS], region, sensor, models)
+        scored["ingest_time"] = scored.join(times, on=KEY_COLS)["ingest_time"].to_numpy()
+        parts.append(scored)
+        log(f"{sensor} {region}: scored {len(scored):,} rows")
+    store = pd.concat(parts, ignore_index=True)
+    store = store.sort_values(["sensor", "region", "timestamp", "latitude", "longitude"]).reset_index(drop=True)
+    write_store(store, path)
+    return {"rows": len(store), "dropped": len(old) - len(store)}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Incremental live store")
     ap.add_argument("--once", action="store_true", help="one ingest, then stop")
     ap.add_argument("--loop", action="store_true", help="ingest again and again")
     ap.add_argument("--every-minutes", type=float, default=180.0, help="wait between ingests in a loop")
     ap.add_argument("--import-live", action="store_true", help="one off: take the rolling stores of src/live.py")
+    ap.add_argument("--rebuild-score", action="store_true", help="score every stored row again, no fetch")
     a = ap.parse_args(argv)
+    if a.rebuild_score:
+        r = rebuild_score()
+        print(f"rows scored: {r['rows']:,}")
+        from .mem import report
+        report("ingest rebuild-score")
+        return
     if a.import_live:
         import_live()
         return

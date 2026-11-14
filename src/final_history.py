@@ -85,3 +85,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    from .mem import report
+    report("final_history")
