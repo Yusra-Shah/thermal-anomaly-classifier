@@ -237,6 +237,39 @@ def test_live_latest_filters_and_cap(client, store):
         assert client.get("/live/latest", params=params).status_code == 422, params
 
 
+def test_live_latest_region_filter_and_trained_flag(client, live_dir):
+    """The fake feed is in South Asia (trained). A row of an untrained region is stored too and is flagged."""
+    by = fake.masters(8)
+    eu = live.REGIONS["Europe"]
+    ingest.run_once(KEY, fetch=fake.fetch_factory(by), models=api.get_models(), sleep=lambda s: None,
+                    log=lambda *a: None, limiter=fake.fast_limiter())
+    store = ingest.read_store()
+    # move a copy of the store rows into the Europe group by rewriting the region and the position
+    moved = store[store["region"] == "South Asia"].head(40).copy()
+    moved["region"] = "Europe"
+    moved["latitude"] = np.linspace(eu[1] + 1, eu[3] - 1, len(moved))
+    moved["longitude"] = np.linspace(eu[0] + 1, eu[2] - 1, len(moved))
+    ingest.write_store(pd.concat([store, moved], ignore_index=True))
+    api._cache.clear()
+    all_rows = client.get("/live/latest", params={"hours": 2000}).json()
+    assert all_rows["untrained_rows"] == 40 and all_rows["matching"] == len(store) + 40
+    for x in all_rows["rows"]:
+        assert x["trained"] == (x["region"] != "Europe")
+        assert (x["note"] is None) == x["trained"]
+        if not x["trained"]:
+            assert x["note"] == "region not in the training data, results unvalidated"
+    sa = client.get("/live/latest", params={"hours": 2000, "region": "South Asia"}).json()
+    assert sa["matching"] == len(store[store["region"] == "South Asia"]) and sa["untrained_rows"] == 0
+    assert {x["region"] for x in sa["rows"]} == {"South Asia"} and all(x["trained"] for x in sa["rows"])
+    en = client.get("/live/latest", params={"hours": 2000, "region": "Europe"}).json()
+    assert en["matching"] == 40 and en["untrained_rows"] == 40 and not any(x["trained"] for x in en["rows"])
+    assert client.get("/live/latest", params={"region": "Atlantis"}).status_code == 422
+    regions = client.get("/live/regions").json()["regions"]
+    assert [r["region"] for r in regions] == list(live.REGIONS)
+    assert sum(r["trained"] for r in regions) == 8
+    assert all((r["note"] is None) == r["trained"] for r in regions)
+
+
 def test_key_never_appears(client, store, monkeypatch):
     monkeypatch.setenv("FIRMS_MAP_KEY", KEY)
     texts = [client.get("/health").text, client.get("/model").text, client.get("/live/latest").text,

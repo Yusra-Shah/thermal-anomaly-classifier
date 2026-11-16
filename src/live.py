@@ -51,10 +51,58 @@ REGIONS = {
     "India": (68.0, 8.0, 98.0, 35.0),
     "Nigeria": (2.0, 4.0, 15.0, 14.0),
     "DR Congo": (12.0, -14.0, 32.0, 6.0),
-    "Europe (not in training)": (-10.0, 36.0, 40.0, 70.0),
+    # Land areas outside the eight trained regions, as continent level boxes. They do not overlap each other
+    # or any trained box (they only touch along edges). The models were not trained on these areas.
+    "Europe": (-10.0, 36.0, 40.0, 70.0),
+    "Russia and North Asia": (40.0, 50.0, 180.0, 78.0),
+    "Central and East Asia": (40.0, 36.0, 150.0, 50.0),
+    "East Asia South": (98.0, 6.0, 150.0, 36.0),
+    "Middle East": (30.0, 14.0, 61.0, 36.0),
+    "North Africa": (-18.0, 14.0, 30.0, 36.0),
+    "West Africa": (-18.0, 4.0, 2.0, 14.0),
+    "Central Africa North": (15.0, 6.0, 32.0, 14.0),
+    "East Africa": (32.0, -14.0, 52.0, 14.0),
+    "Southern Africa": (10.0, -36.0, 52.0, -14.0),
+    "Central America and Caribbean": (-118.0, 6.0, -34.0, 19.0),
+    "South America West": (-82.0, -56.0, -74.0, 6.0),
+    "South America South": (-74.0, -56.0, -34.0, -34.0),
+    "Oceania North": (141.0, -11.0, 180.0, 6.0),
+    "Oceania South": (154.0, -48.0, 180.0, -11.0),
 }
 TRAINED = {"South Asia", "Southeast Asia", "North and Central America", "Brazil", "Australia", "India",
            "Nigeria", "DR Congo"}
+UNTRAINED_NOTE = "region not in the training data, results unvalidated"
+
+
+def is_trained(region):
+    """True only for the eight regions of the training data."""
+    return region in TRAINED
+
+
+def region_note(region):
+    """Text for the legend, popups and the API: empty for a trained region."""
+    return "" if is_trained(region) else UNTRAINED_NOTE
+
+
+def freshness_text(latest, now, per_sensor, sensors=None):
+    """Newest detection time in UTC, its age in minutes and the rows per sensor, as one line."""
+    sensors = list(sensors or LIVE_SOURCES)
+    age = max(int(round((pd.Timestamp(now) - pd.Timestamp(latest)).total_seconds() / 60)), 0)
+    rows = ", ".join(f"{s} {int(per_sensor.get(s, 0)):,}" for s in sensors)
+    return f"Newest detection {pd.Timestamp(latest):%Y-%m-%d %H:%M} UTC, {age:,} minutes ago. Rows per sensor: {rows}."
+
+
+def key_status(key, timeout=TIMEOUT):
+    """Transaction counter of the key: (used in the current window, limit). Numbers only. The answer and
+    the request are never printed, and a failure raises FirmsError with the exception class only."""
+    import requests
+    url = f"https://firms.modaps.eosdis.nasa.gov/mapserver/mapkey_status/?MAP_KEY={key}"
+    try:
+        r = requests.get(url, timeout=timeout)
+        data = r.json()
+        return int(data["current_transactions"]), int(data["transaction_limit"])
+    except Exception as e:
+        raise FirmsError(f"key status unavailable ({type(e).__name__})") from None
 
 
 class FirmsError(RuntimeError):

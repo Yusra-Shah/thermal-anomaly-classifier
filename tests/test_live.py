@@ -394,11 +394,11 @@ def test_app_live(tmp):
     assert not at.exception, at.exception
 
     # Region outside training: banner when a snapshot exists
-    live.write_snapshot("Europe (not in training)", fake_detections(60))
+    live.write_snapshot("Europe", fake_detections(60))
 
     def europe(a):
         to_live(a)
-        a.selectbox(key="earth_region").set_value("Europe (not in training)").run()
+        a.selectbox(key="earth_region").set_value("Europe").run()
     at = None                     # free the previous app run first (memory)
     gc.collect()
     at = run_app(tmp, None, europe)
@@ -417,32 +417,61 @@ def test_app_live(tmp):
 
 
 def test_app_store(tmp):
-    """Live source from the incremental store: last ingest time, row counts, no fetch controls, unvalidated label."""
+    """Live source from the incremental store: freshness, 6/24/72 hour window, no fetch controls, unvalidated
+    label, untrained region marking."""
     from src import ingest
     from tests import fake_feed
     live.LIVE_DIR = Path(tmp)
     ingest.run_once("fake", fetch=fake_feed.fetch_factory(fake_feed.masters(10)), sleep=lambda s: None,
                     log=lambda *a: None, limiter=fake_feed.fast_limiter())
+    # rows of an untrained region: the same fake detections moved into the Europe box
+    eu = live.REGIONS["Europe"]
+    extra = []
+    for sensor, source in live.LIVE_SOURCES.items():
+        m = fake_feed.master(6, seed=7)
+        m["latitude"] = eu[1] + 1 + (m["latitude"] - m["latitude"].min()) / (m["latitude"].max() - m["latitude"].min() + 1e-9) * 20
+        m["longitude"] = eu[0] + 1 + (m["longitude"] - m["longitude"].min()) / (m["longitude"].max() - m["longitude"].min() + 1e-9) * 30
+        extra.append(ingest.standardize(m, sensor, "Europe"))
+    ingest.run_once(fetch=None, extra=extra, sleep=lambda s: None, log=lambda *a: None)
     store = ingest.read_store()
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
     at = None
     gc.collect()
     at = run_app(tmp, None, to_live)
     assert not at.exception, at.exception
     caps = [c.value for c in at.caption]
     assert any("Live store, last ingest" in c and "Live results are unvalidated" in c for c in caps), caps
-    n20, n21 = (int((store["sensor"] == s).sum()) for s in ("NOAA-20", "NOAA-21"))
-    assert any(f"NOAA-20 {n20:,}" in c and f"NOAA-21 {n21:,}" in c and "Rows in the store" in c for c in caps), caps
-    assert any("Latest detection" in c and "Acquisition dates" in c for c in caps)
+    assert any("reads the store again every 10 minutes" in c for c in caps)
+    win = store[store["timestamp"] >= now - pd.Timedelta(hours=24)]
+    n20, n21 = (int((win["sensor"] == s).sum()) for s in ("NOAA-20", "NOAA-21"))
+    fresh = [c for c in caps if c.startswith("Newest detection")]
+    assert fresh and "UTC" in fresh[0] and "minutes ago" in fresh[0] and "Rows per sensor" in fresh[0], caps
+    assert f"NOAA-20 {n20:,}" in fresh[0] and f"NOAA-21 {n21:,}" in fresh[0], (fresh, n20, n21)
+    assert [r.label for r in at.radio if r.key == "earth_hours"] == ["Time window"]
+    assert [o for o in at.radio(key="earth_hours").options] == ["last 6 hours", "last 24 hours", "last 72 hours"]
+    assert at.radio(key="earth_hours").value == 24                                        # the default is 24 hours
     assert not any(b.key == "earth_refresh" for b in at.button)                 # no fetch button in store mode
     assert not any(e.value == DEMO_NOTICE for e in at.error)
     assert any("validated" in c.value for c in at.caption)
     assert metric(at, "Detections in Earth") > 0 and metric(at, "Circles drawn") > 0
+    assert any("not in the training data" in c for c in caps)                      # untrained rows are marked
     for tier in (INSTANT_TIER, HISTORY_TIER):
         at.radio(key="earth_live_tier").set_value(tier).run()
         assert not at.exception, at.exception
         assert metric(at, "Detections in Earth") > 0
-    at.selectbox(key="earth_region").set_value("Europe (not in training)").run()
-    assert not at.exception and any("no detections for this region" in i.value for i in at.info)
+    seen = {}
+    for hours in (6, 24, 72):
+        at.radio(key="earth_hours").set_value(hours).run()
+        assert not at.exception, at.exception
+        seen[hours] = metric(at, "Detections in Earth")
+    assert seen[6] <= seen[24] <= seen[72] and seen[72] > 0, seen
+    # an untrained region is flagged, a trained region is not
+    at.selectbox(key="earth_region").set_value("Europe").run()
+    assert not at.exception, at.exception
+    assert any("Region not in the training data, results unvalidated" in w.value for w in at.warning),         [w.value for w in at.warning]
+    at.selectbox(key="earth_region").set_value("Brazil").run()
+    assert not at.exception and any("no detections for this selection" in i.value for i in at.info)
+    assert not any("not in the training data" in w.value for w in at.warning)
     # without the store the earlier behaviour returns
     (Path(tmp) / "store.parquet").unlink()
     at = None

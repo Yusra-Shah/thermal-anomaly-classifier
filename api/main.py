@@ -63,16 +63,10 @@ def _store_file():
     return ingest.store_path()
 
 
-def _cached(name, columns):
-    """The store (some columns), reread when the file changes."""
+def _store_info():
+    """(rows, last ingest time) from the file metadata, without reading the data."""
     path = _store_file()
-    if not path.exists():
-        return None
-    stamp = path.stat().st_mtime_ns
-    hit = _cache.get(name)
-    if hit is None or hit[0] != stamp or hit[2] != path:
-        _cache[name] = (stamp, pd.read_parquet(path, columns=columns), path)
-    return _cache[name][1]
+    return ingest.store_info(path)
 
 
 # ------------------------------------------------------------------ request models
@@ -165,8 +159,12 @@ def store_history(cells):
     """Latest history features of each cell found in the store: a frame indexed by cell_id, or None."""
     models = get_models()
     cols = ["cell_id", "timestamp"] + models.history_only
-    store = _cached("history", cols)
-    if store is None or store.empty:
+    path = _store_file()
+    if not path.exists():
+        return None
+    # only the rows of the asked cells are read, never the whole store
+    store = pd.read_parquet(path, columns=cols, filters=[("cell_id", "in", sorted(set(cells)))])
+    if store.empty:
         return None
     latest = store.sort_values("timestamp").drop_duplicates("cell_id", keep="last").set_index("cell_id")
     return latest[latest.index.isin(set(cells))][models.history_only]
@@ -216,10 +214,10 @@ def predict(dets):
 # ------------------------------------------------------------------ endpoints
 @app.get("/health")
 def health():
-    ts = _cached("health", ["ingest_time"])
-    if ts is None or ts.empty:
+    rows, last = _store_info()
+    if not rows or last is None:
         return {"status": "ok", "last_ingest": None, "rows": 0}
-    return {"status": "ok", "last_ingest": pd.Timestamp(ts["ingest_time"].max()).isoformat(), "rows": int(len(ts))}
+    return {"status": "ok", "last_ingest": pd.Timestamp(last).isoformat(), "rows": int(rows)}
 
 
 def _band(b):
@@ -281,34 +279,47 @@ LIVE_COLS = ["sensor", "region", "latitude", "longitude", "acq_date", "acq_time"
              "p_history", "pc_history", "label_history", "history_default", "history_strict"]
 
 
+@app.get("/live/regions")
+def live_regions():
+    """Every region of the live store with its box and whether it was in the training data."""
+    return {"regions": [{"region": r, "box": list(b), "trained": live.is_trained(r),
+                         "note": live.region_note(r) or None} for r, b in live.REGIONS.items()],
+            "note": NOTE}
+
+
 @app.get("/live/latest")
 def live_latest(hours: int = Query(24, ge=1, le=24 * 90), sensor: Optional[str] = None,
+                region: Optional[str] = None,
                 min_lat: Optional[float] = Query(None, ge=-90, le=90), max_lat: Optional[float] = Query(None, ge=-90, le=90),
                 min_lon: Optional[float] = Query(None, ge=-180, le=180),
                 max_lon: Optional[float] = Query(None, ge=-180, le=180),
                 limit: int = Query(MAX_LIVE_ROWS, ge=1, le=MAX_LIVE_ROWS)):
     if sensor is not None and sensor not in SENSORS:
         raise HTTPException(status_code=422, detail=f"sensor must be one of {SENSORS}")
+    if region is not None and region not in live.REGIONS:
+        raise HTTPException(status_code=422, detail=f"region must be one of {list(live.REGIONS)}")
     box = [min_lat, min_lon, max_lat, max_lon]
     if any(v is not None for v in box) and not all(v is not None for v in box):
         raise HTTPException(status_code=422, detail="give all of min_lat, min_lon, max_lat and max_lon, or none")
     if all(v is not None for v in box) and (min_lat > max_lat or min_lon > max_lon):
         raise HTTPException(status_code=422, detail="the box has its minimum above its maximum")
-    store = _cached("live", LIVE_COLS)
-    if store is None:
+    if not _store_file().exists():
         raise HTTPException(status_code=503, detail="no live store yet, run python -m src.ingest --once")
     since = pd.Timestamp.now(tz="UTC").tz_localize(None) - timedelta(hours=hours)
-    sel = store["timestamp"] >= since
-    if sensor:
-        sel &= store["sensor"] == sensor
+    # the time, sensor and region filters are applied while reading, so a request never loads the whole store
+    store = ingest.read_recent(_store_file(), since=since, columns=LIVE_COLS, sensor=sensor, region=region)
+    sel = pd.Series(True, index=store.index)
     if all(v is not None for v in box):
         sel &= store["latitude"].between(min_lat, max_lat) & store["longitude"].between(min_lon, max_lon)
     rows = store[sel].sort_values("timestamp", ascending=False)
     total = len(rows)
     rows = rows.head(limit).copy()
+    rows["trained"] = rows["region"].isin(live.TRAINED)
+    rows["note"] = np.where(rows["trained"], None, live.UNTRAINED_NOTE)
     rows["acq_date"] = rows["acq_date"].dt.strftime("%Y-%m-%d")
     rows["timestamp"] = rows["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     for c in ("p_instant", "pc_instant", "p_history", "pc_history"):
         rows[c] = rows[c].astype(float).round(5)
-    return {"count": len(rows), "matching": total, "truncated": total > len(rows), "note": NOTE,
-            "rows": json.loads(rows.to_json(orient="records"))}
+    untrained = int((~rows["trained"]).sum())
+    return {"count": len(rows), "matching": total, "truncated": total > len(rows), "untrained_rows": untrained,
+            "note": NOTE, "rows": json.loads(rows.to_json(orient="records"))}

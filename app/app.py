@@ -227,59 +227,70 @@ def live_scored(region, stamp, _inst_bundle=None):
     return df, fetched, meta
 
 
-@st.cache_data(show_spinner="Reading the live store")
-def live_store_scored(region, stamp):
-    """Rows of one region from the incremental store (python -m src.ingest) with geography and the
-    column names of the snapshot path, plus the last ingest time and the bands. Cached by file stamp."""
-    df = pd.read_parquet(ingest.store_path(), filters=[("region", "==", region)])
-    last = pd.read_parquet(ingest.store_path(), columns=["ingest_time"])["ingest_time"].max()
-    rows = pd.read_parquet(ingest.store_path(), columns=["sensor"])["sensor"].value_counts().to_dict()
-    if df.empty:
-        return df, last, rows, None
+ALL_REGIONS = "All regions"
+LIVE_HOURS = [6, 24, 72]
+LIVE_REFRESH_SECONDS = 600
+STORE_COLS = ["sensor", "region", "latitude", "longitude", "acq_date", "acq_time", "timestamp", "cell_id",
+              "bright_ti4", "frp", "p_instant", "p_history"]
+
+
+@st.cache_data(ttl=LIVE_REFRESH_SECONDS, show_spinner="Reading the live store")
+def live_store_scored(region, hours, stamp):
+    """Detections of the last `hours` hours of one region (or all regions) from the incremental store
+    (python -m src.ingest), with geography and the column names of the snapshot path, plus the last ingest time
+    and the bands. Only the needed columns and the needed time range are read. Cached by file stamp and for
+    ten minutes, so the view follows the store."""
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    df = ingest.read_recent(since=now - pd.Timedelta(hours=hours), columns=STORE_COLS,
+                            region=None if region == ALL_REGIONS else region)
+    _, last = ingest.store_info()
+    if df is None or df.empty:
+        return df, last, None
     df = df.rename(columns={"p_instant": "p_static_instant", "p_history": "p_static_history"})
-    df["days_seen_30"] = live.days_seen_30(df)
     df = live.add_geo(df)
     hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")
     inst = joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
     meta = {"bands": {"history": uncertain.bands_of(hist, "best_model_history_band.json"),
                       "instant": uncertain.bands_of(inst, "best_model_headline_band.json")},
             "inst_threshold": float(inst["threshold"])}
-    return df, last, rows, meta
+    return df, last, meta
 
 
 def store_source(region, live_tier, thr, col):
-    """Live source from the incremental store: same view as the snapshot path, without the fetch controls."""
+    """Live source from the incremental store: last 6, 24 or 72 hours, freshness, no fetch controls."""
     path = ingest.store_path()
+    hours = st.radio("Time window", LIVE_HOURS, index=1, horizontal=True, key="earth_hours",
+                     format_func=lambda h: f"last {h} hours")
     try:
-        df, last, rows, meta = live_store_scored(region, path.stat().st_mtime_ns)
+        df, last, meta = live_store_scored(region, hours, path.stat().st_mtime_ns)
     except Exception as e:
-        st.error(f"Could not read the live store: {e}")
+        st.error(f"Could not read the live store: {type(e).__name__}")
         return None
-    total = ", ".join(f"{n} {int(rows.get(n, 0)):,}" for n in live.LIVE_SOURCES)
-    st.caption(f"Live store, last ingest {pd.Timestamp(last):%Y-%m-%d %H:%M} UTC. Rows in the store: {total}. "
-               "It is updated by python -m src.ingest, there is no fetch button here. Live results are unvalidated.")
-    if df.empty:
-        st.info("The live store has no detections for this region.")
+    st.caption(f"Live store, last ingest {pd.Timestamp(last):%Y-%m-%d %H:%M} UTC. It is updated by python -m "
+               f"src.ingest, there is no fetch button here. The view reads the store again every "
+               f"{LIVE_REFRESH_SECONDS // 60} minutes. Live results are unvalidated.")
+    if df is None or df.empty:
+        st.info(f"The live store has no detections for this selection in the last {hours} hours.")
         return None
     if thr is None:
         thr = meta["inst_threshold"]
         st.caption(f"Instant model, saved threshold {thr:.3f}")
-    if region not in live.TRAINED:
-        st.warning("This region was not part of the training data. Results here are unvalidated.")
+    if region != ALL_REGIONS and not live.is_trained(region):
+        st.warning(live.region_note(region).capitalize() + ".")
+    elif region == ALL_REGIONS:
+        n_un = int((~df["region"].isin(live.TRAINED)).sum())
+        if n_un:
+            st.caption(f"{n_un:,} of these detections are in regions not in the training data (results "
+                       "unvalidated). They are marked in the legend and in the popups.")
     now = pd.Timestamp.now(tz="UTC").tz_localize(None)
     latest = df["timestamp"].max()
+    per = df["sensor"].value_counts().to_dict()
+    st.caption(live.freshness_text(latest, now, per, live.LIVE_SOURCES))
     age_h = (now - latest).total_seconds() / 3600
-    days = st.slider("Days shown", 1, ingest.KEEP_DAYS, 7, key="earth_days",
-                     help="Features always use the full stored history.")
-    view = df[df["acq_date"] > df["acq_date"].max() - pd.Timedelta(days=days)]
-    view = view.assign(p_static=view[col], pred_static=(view[col] >= thr).astype(int))
-    per = df["sensor"].value_counts()
-    st.caption(f"Latest detection {latest:%Y-%m-%d %H:%M} UTC, data age {age_h:.1f} h. "
-               f"Acquisition dates {df['acq_date'].min():%Y-%m-%d} to {df['acq_date'].max():%Y-%m-%d}. Rows in this "
-               "region: " + ", ".join(f"{n} {int(per.get(n, 0)):,}" for n in live.LIVE_SOURCES) + ".")
     if age_h > 24:
-        st.warning(f"The newest detection in this region is {age_h:.0f} hours old. Run python -m src.ingest "
+        st.warning(f"The newest detection in this selection is {age_h:.0f} hours old. Run python -m src.ingest "
                    "or check that the scheduled task is running.")
+    view = df.assign(p_static=df[col], pred_static=(df[col] >= thr).astype(int))
     return view, region, False, meta["bands"]["history" if live_tier == HISTORY else "instant"]
 
 
@@ -318,7 +329,10 @@ def live_source(tier, bundle):
                "Near real time data has not been validated against the archive.")
 
     c1, c2, c3, c4 = st.columns([3, 3, 3, 2])
-    region = c1.selectbox("Region loaded", list(live.REGIONS), key="earth_region")
+    has_store = ingest.store_path().exists()
+    region = c1.selectbox("Region loaded", ([ALL_REGIONS] if has_store else []) + list(live.REGIONS),
+                          key="earth_region",
+                          format_func=lambda n: n if n == ALL_REGIONS or live.is_trained(n) else f"{n} (not in training)")
     live_tier = c2.radio("Live model", [HISTORY, INSTANT], key="earth_live_tier")
     if live_tier == HISTORY:
         names = [n for n in OPERATING_POINTS if hist["thresholds"].get(n) is not None]
@@ -328,7 +342,7 @@ def live_source(tier, bundle):
     else:
         thr, col = None, "p_static_instant"          # the saved threshold is read with the scores below
         st.caption(instant_note())
-    if ingest.store_path().exists():
+    if has_store:
         return store_source(region, live_tier, thr, col)
     if key is None:
         c4.caption("Offline: no map key")
@@ -689,10 +703,21 @@ ARCHIVE_SRC, LIVE_SRC = "Archive (Jan to Jun 2025)", "Live near real time"
 def earth_tab(archive, tier, bundle):
     """One Earth: globe, flat map and terrain in a MapLibre page (needs internet for the tiles).
 
-    The archive uses the sidebar tier and operating point. The live source has its own controls.
+    The archive uses the sidebar tier and operating point. The live source has its own controls and, where
+    Streamlit has fragments, rereads the store every ten minutes without rerunning the rest of the page.
     Changing the Show option reloads the page, which restores the camera from the browser session.
     """
     src = st.radio("Data source", [ARCHIVE_SRC, LIVE_SRC], horizontal=True, key="earth_source")
+    if src == LIVE_SRC and hasattr(st, "fragment"):
+        st.fragment(run_every=LIVE_REFRESH_SECONDS)(earth_body)(src, archive, tier, bundle)
+    else:
+        earth_body(src, archive, tier, bundle)
+        if src == LIVE_SRC and st.button("Refresh now", key="earth_refresh_view"):
+            st.cache_data.clear()
+            st.rerun()
+
+
+def earth_body(src, archive, tier, bundle):
     is_live = src == LIVE_SRC
     region, demo = None, False
     if is_live:

@@ -166,7 +166,7 @@ def test_day_range_pause_and_boxes(live_dir, models):
     run(fake.fetch_factory(fake.masters(3), log), models, sleep=waits.append, limiter=fake.fast_limiter())
     assert log and all(1 <= days <= 5 for _, days, _, _ in log)
     assert {src for _, _, src, _ in log} == set(live.LIVE_SOURCES.values())
-    assert {box for _, _, _, box in log} == {live.REGIONS[r] for r in live.TRAINED}
+    assert {box for _, _, _, box in log} == set(live.REGIONS.values())
     assert len(waits) == len(log) and all(w == live.PAUSE for w in waits)           # a short wait after every call
     # the first run asks for 90 days in chunks of at most 5, per sensor and region
     per = [(src, box) for _, _, src, box in log]
@@ -189,7 +189,7 @@ def test_rate_limiter_waits_inside_the_window():
     lim.wait(40)                                         # 120 in 20 seconds: must wait for the first call to age out
     assert len(slept) == 1 and clock["t"] >= 600
     assert sum(c for _, c in lim.calls) <= 100
-    assert ingest.BUDGET < ingest.LIMIT == 5000 and ingest.COST_PER_DAY * ingest.live.MAX_DAY_RANGE * 2 < ingest.BUDGET
+    assert ingest.BUDGET < ingest.LIMIT == 5000 and ingest.COST_PER_CALL * ingest.live.MAX_DAY_RANGE * 2 < ingest.BUDGET
 
 
 def test_key_never_printed(live_dir, models, capsys, monkeypatch):

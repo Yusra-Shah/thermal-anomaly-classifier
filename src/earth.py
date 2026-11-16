@@ -8,7 +8,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from . import geo, uncertain
+from . import geo, live, uncertain
 
 MAPLIBRE = "5.6.0"
 MAX_POINTS = 20_000
@@ -76,12 +76,14 @@ def payload(df, kinds, band=None, cap=MAX_POINTS):
     dec = (uncertain.decide(d["p_cal"].to_numpy(), band) if band
            else d["pred_static"].astype(int).to_numpy())
     nasa = d["is_static"].astype(int).tolist() if "is_static" in d else [-1] * len(d)
+    untrained = ((~d["region"].astype(str).isin(live.TRAINED)).astype(int).tolist() if "region" in d else [0] * len(d))
+    when = d["timestamp"].dt.strftime("%H:%M").tolist() if "timestamp" in d else [""] * len(d)
     data = {
         "x": d["longitude"].round(3).tolist(), "y": d["latitude"].round(3).tolist(),
         "p": d["p_static"].round(3).tolist(), "c": d["pred_static"].astype(int).tolist(),
         "k": d["_k"].astype(int).tolist(), "n": nasa, "dec": [int(x) for x in dec],
         "t": d["bright_ti4"].round(1).tolist(), "f": d["frp"].round(1).tolist(),
-        "d": dt.tolist(), "dn": list(dt_names), "g": cc.tolist(),
+        "d": dt.tolist(), "dn": list(dt_names), "u": untrained, "tm": when, "g": cc.tolist(),
         "gn": [geo.country_name(c) for c in cc_names], "a": pv.tolist(), "an": list(pv_names)}
     note = (f"Showing a random sample of {len(d):,} of {total:,} detections." if total > cap
             else f"Showing all {total:,} detections.")
@@ -110,7 +112,8 @@ def outlines(cc, province, df=None):
 
 def html(data, box, shapes, show, sig, demo=False, height=700, three_way=False):
     cfg = {"data": data, "box": box, "shapes": shapes, "lines": geo.country_lines(), "demo": demo,
-           "legend": legend(show, three_way), "sig": sig}
+           "legend": legend(show, three_way), "sig": sig, "untrained": live.UNTRAINED_NOTE,
+           "any_untrained": any(data.get("u", []))}
     page = (TEMPLATE.replace("__VER__", MAPLIBRE).replace("__HEIGHT__", str(height - 24))
             .replace("__ATTR__", ATTRIBUTION).replace("__CFG__", json.dumps(cfg, separators=(",", ":"))))
     return BOOT.replace("__PAGE__", page.replace("</script", "<\\/script"))
@@ -136,17 +139,19 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
 #map { height: __HEIGHT__px; width: 100%; }
 #bar { position: absolute; top: 8px; left: 8px; z-index: 2; display: flex; gap: 6px; }
 #bar button { background: #fff; border: 1px solid #bbb; border-radius: 3px; padding: 4px 9px; cursor: pointer; font: 12px sans-serif; }
-#bar button.on { background: #222; color: #fff; }
+#bar button.on { background: #222; color: #fff; box-shadow: inset 0 0 0 2px #ffcc00; }
 #foot { background: #fff; padding: 3px 8px; font-size: 10px; color: #666; height: 18px; overflow: hidden; white-space: nowrap; }
 #msg { position: absolute; bottom: 30px; left: 8px; background: rgba(255,255,255,.9); padding: 2px 6px; font-size: 11px; z-index: 2; }
 .pop { font: 12px sans-serif; line-height: 1.5; }
+.satlab { position: absolute; z-index: 1; pointer-events: none; color: #fff; font: 11px sans-serif; text-shadow: 0 0 3px #000, 0 0 3px #000; }
 #legend { position: absolute; top: 44px; left: 8px; z-index: 2; background: rgba(255,255,255,.92); padding: 5px 8px; font: 11px sans-serif; line-height: 1.6; border-radius: 3px; }
 #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid #fff; }
 </style></head>
 <body>
 <div id="map"></div>
 <div id="bar">
-  <button id="rot" class="on">Rotate</button>
+  <button id="rot" class="on" aria-pressed="true">Rotate</button>
+  <button id="sat" class="on" aria-pressed="true">Satellites</button>
   <button id="base">Basemap: Satellite</button>
   <button id="tilt">Tilt 3D</button>
 </div>
@@ -169,7 +174,7 @@ const SAT = {
   ]
 };
 const VOYAGER = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
-let mode = "sat", spin = CFG.box === null, ready = false;
+let mode = "sat", spin = CFG.box === null, satOn = true, ready = false;
 
 // Camera, basemap and rotation survive a reload of this page (a change of the Show option).
 const CAM = "earth_cam", SIG = "earth_sig";
@@ -178,7 +183,7 @@ try {
   if (sessionStorage.getItem(SIG) === CFG.sig) saved = JSON.parse(sessionStorage.getItem(CAM));
   sessionStorage.setItem(SIG, CFG.sig);
 } catch (e) { saved = null; }
-if (saved) { mode = saved.mode; spin = saved.spin; }
+if (saved) { mode = saved.mode; spin = saved.spin; if (saved.sat !== undefined) satOn = saved.sat; }
 
 const map = new maplibregl.Map({
   container: "map", style: mode === "sat" ? SAT : VOYAGER, maxPitch: 80, attributionControl: false,
@@ -189,13 +194,12 @@ if (mode === "map") document.getElementById("base").textContent = "Basemap: Map"
 setInterval(() => {
   try {
     sessionStorage.setItem(CAM, JSON.stringify({ c: map.getCenter().toArray(), z: map.getZoom(), p: map.getPitch(),
-      b: map.getBearing(), mode: mode, spin: spin }));
+      b: map.getBearing(), mode: mode, spin: spin, sat: satOn }));
   } catch (e) {}
 }, 1000);
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 window.earthMap = map;
-document.getElementById("rot").classList.toggle("on", spin);
-window.earthState = { spinning: () => spin, mode: () => mode };
+window.earthState = { spinning: () => spin, mode: () => mode, satellites: () => satOn, easing: () => easing };
 
 function points() {
   const f = [];
@@ -276,6 +280,9 @@ function stats() {
   try { inView = map.getLayer("pts") ? map.queryRenderedFeatures({ layers: ["pts"] }).length : 0; } catch (e) {}
   window.earthStats = { source: D.x.length, inView: inView };
   lg.innerHTML = CFG.legend.map(l => "<div><i style='background:" + l[1] + "'></i>" + l[2] + "</div>").join("") +
+    (CFG.any_untrained ? "<div style='color:#a05a00'>Some detections: " + CFG.untrained + "</div>" : "") +
+    (satOn ? SATS.map(q => "<div><i style='background:" + q.color + "'></i>" + q.name + "</div>").join("") +
+      "<div style='color:#666'>Illustrative orbits, not real positions</div>" : "") +
     "<div style='color:#666'>In source " + D.x.length.toLocaleString() + ", in view " + inView.toLocaleString() + "</div>";
 }
 try { stats(); } catch (e) {}                      // the legend shows before the first idle
@@ -289,6 +296,7 @@ function ensure() {
   try {
     if (mode === "map") map.setProjection({ type: "globe" });
     installPoints();
+    installSats();
     ready = true;
     stats();
     scheduleExtras();
@@ -300,19 +308,128 @@ map.on("load", ensure);
 map.on("zoomend", terrainFor);
 map.on("error", (e) => console.error("maplibre " + (e.error && e.error.message)));
 
-// Rotation: slow turn at world zoom, stops at the first touch, drag or zoom.
-function stopSpin() { spin = false; document.getElementById("rot").classList.remove("on"); }
+// Rotation is a toggle. It turns the globe slowly. From a closer zoom it first eases out to the globe, then
+// turns. A drag, a touch or a zoom on the map stops it. Satellites are independent of it.
+const GLOBE_ZOOM = 3.2, SPIN_DEG_PER_S = 4, EASE_ZOOM = 1.6;
+let easing = false;
+function setSpin(on) {
+  spin = on;
+  const b = document.getElementById("rot");
+  b.classList.toggle("on", on);
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  if (!on && easing) { easing = false; map.stop(); }
+}
+function stopSpin() { if (spin) setSpin(false); }
+setSpin(spin);
 const cv = map.getCanvas();
 ["mousedown", "touchstart", "wheel", "pointerdown"].forEach(e => cv.addEventListener(e, stopSpin, { passive: true }));
-setInterval(() => {
-  if (!spin || !ready || map.getZoom() > 3.2) return;
-  const c = map.getCenter();
-  map.jumpTo({ center: [c.lng + 0.08, c.lat] });
-}, 40);
-document.getElementById("rot").onclick = () => {
-  spin = !spin;
-  document.getElementById("rot").classList.toggle("on", spin);
-};
+document.getElementById("rot").onclick = () => setSpin(!spin);
+
+// Illustrative satellites: a circular sun synchronous orbit (inclination 98.7 degrees, period 101 minutes),
+// three phases, run 60 times faster than real time. One small geojson source, updated about every 60 ms.
+const SATS = [{ name: "S-NPP", color: "#ffd23f", phase: 0 }, { name: "NOAA-20", color: "#00e5ff", phase: 120 },
+              { name: "NOAA-21", color: "#ff7ad9", phase: 240 }];
+const INC = 98.7 * Math.PI / 180, PERIOD = 101 * 60, SPEEDUP = 60, EARTH_RAD_S = 2 * Math.PI / 86164;
+const TRAIL_POINTS = 36, TRAIL_STEP = 30;
+function satLonLat(T, phase) {
+  const u = 2 * Math.PI * T / PERIOD + phase * Math.PI / 180;
+  const lat = Math.asin(Math.sin(INC) * Math.sin(u));
+  let lon = Math.atan2(Math.cos(INC) * Math.sin(u), Math.cos(u)) - EARTH_RAD_S * T;
+  lon = ((lon * 180 / Math.PI + 540) % 360 + 360) % 360 - 180;
+  return [lon, lat * 180 / Math.PI];
+}
+function satData(T) {
+  const f = [];
+  SATS.forEach(q => {
+    let prev = null;
+    for (let k = TRAIL_POINTS; k >= 0; k--) {
+      const p = satLonLat(T - k * TRAIL_STEP, q.phase);
+      if (prev && Math.abs(p[0] - prev[0]) < 180)
+        f.push({ type: "Feature", properties: { kind: "trail", c: q.color, a: 0.9 * (1 - k / TRAIL_POINTS) },
+                 geometry: { type: "LineString", coordinates: [prev, p] } });
+      prev = p;
+    }
+    f.push({ type: "Feature", properties: { kind: "dot", c: q.color, name: q.name }, geometry: { type: "Point", coordinates: prev } });
+  });
+  return { type: "FeatureCollection", features: f };
+}
+function installSats() {
+  addSrc("sats", { type: "geojson", data: satData(performance.now() / 1000 * SPEEDUP) });
+  const vis = satOn ? "visible" : "none";
+  addLay({ id: "sat-trail", type: "line", source: "sats", filter: ["==", ["get", "kind"], "trail"],
+           layout: { visibility: vis, "line-cap": "round" }, paint: { "line-color": ["get", "c"], "line-opacity": ["get", "a"], "line-width": 2.2 } });
+  addLay({ id: "sat-dot", type: "circle", source: "sats", filter: ["==", ["get", "kind"], "dot"],
+           layout: { visibility: vis }, paint: { "circle-color": ["get", "c"], "circle-radius": 5.5, "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5 } });
+}
+// Names are plain page elements placed over the dots, so no map font has to load.
+const satLabels = SATS.map(q => {
+  const e = document.createElement("div");
+  e.className = "satlab";
+  e.textContent = q.name;
+  e.style.display = "none";
+  document.body.appendChild(e);
+  return e;
+});
+let satPos = null, satPending = null;
+function placeLabels() {
+  satLabels.forEach((e, i) => {
+    if (!satOn || !satPos) { e.style.display = "none"; return; }
+    const c = map.getCenter(), p = satPos[i];
+    const rad = Math.PI / 180;
+    const dot = Math.sin(c.lat * rad) * Math.sin(p[1] * rad) + Math.cos(c.lat * rad) * Math.cos(p[1] * rad) * Math.cos((p[0] - c.lng) * rad);
+    if (dot < 0.05) { e.style.display = "none"; return; }        // behind the globe
+    const xy = map.project(p);
+    e.style.display = "block";
+    e.style.left = (xy.x + 9) + "px";
+    e.style.top = (xy.y - 7) + "px";
+  });
+}
+function setSats(on) {
+  satOn = on;
+  const b = document.getElementById("sat");
+  b.classList.toggle("on", on);
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  ["sat-trail", "sat-dot"].forEach(id => { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); });
+  placeLabels();
+  try { stats(); } catch (e) {}
+}
+document.getElementById("sat").onclick = () => setSats(!satOn);
+setSats(satOn);
+
+// The next update waits until the map has taken the previous one, so a slow device is never flooded.
+let last = performance.now(), lastSat = 0, satBusy = false;
+let satLoaded = false;
+map.on("sourcedata", (e) => { if (e.sourceId === "sats" && e.isSourceLoaded) satLoaded = true; });
+map.on("render", () => { if (satBusy && satLoaded) { satBusy = false; satPos = satPending; } });             // taken by the map and drawn once
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.1);
+  last = now;
+  if (spin && ready) {
+    if (map.getZoom() > GLOBE_ZOOM) {
+      if (!easing) {
+        easing = true;
+        map.once("moveend", () => { easing = false; });
+        map.easeTo({ zoom: EASE_ZOOM, pitch: 0, bearing: 0, duration: 2000 });
+      }
+    } else if (!easing) {
+      const c = map.getCenter();
+      map.jumpTo({ center: [c.lng + SPIN_DEG_PER_S * dt, c.lat] });
+    }
+  }
+  if (satBusy && now - lastSat > 2500) satBusy = false;               // never stall on a lost event
+  if (satOn && ready && !satBusy && now - lastSat > 100) {
+    const src = map.getSource("sats");
+    if (src) {
+      lastSat = now; satBusy = true; satLoaded = false;
+      const T = now / 1000 * SPEEDUP;
+      src.setData(satData(T));
+      satPending = SATS.map(q => satLonLat(T, q.phase));
+    }
+  }
+  placeLabels();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 
 document.getElementById("base").onclick = (ev) => {
   mode = mode === "sat" ? "map" : "sat";
@@ -346,7 +463,8 @@ map.on("click", (e) => {
   const nasa = D.n[i] < 0 ? "" : "NASA label: " + (D.n[i] === 1 ? "static" : "fire") + "<br>";
   const html = "<div class='pop'><b>Decision: " + (D.dec[i] === 1 ? "static heat source" : D.dec[i] === 0 ? "fire" : "uncertain, needs investigation") + "</b><br>" +
     "Probability of static: " + D.p[i] + "<br>" + nasa + "Brightness (I-4): " + D.t[i] + " K<br>FRP: " + D.f[i] + " MW<br>" +
-    "Date: " + D.dn[D.d[i]] + "<br>Country: " + D.gn[D.g[i]] + "<br>Province: " + D.an[D.a[i]] + "</div>";
+    "Date: " + D.dn[D.d[i]] + (D.tm[i] ? " " + D.tm[i] + " UTC" : "") + "<br>Country: " + D.gn[D.g[i]] + "<br>Province: " + D.an[D.a[i]] +
+    (D.u[i] ? "<br><b style='color:#a05a00'>" + CFG.untrained.charAt(0).toUpperCase() + CFG.untrained.slice(1) + "</b>" : "") + "</div>";
   new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.lngLat).setHTML(html).addTo(map);
 });
 map.on("mouseenter", "pts", () => { cv.style.cursor = "pointer"; });

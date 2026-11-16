@@ -1,7 +1,8 @@
 """Peak memory of this process (Windows): peak working set and peak commit in MB."""
 
 
-def peak_memory():
+def peak_memory(current=False):
+    """(peak working set, peak commit) in MB, or with current=True the (working set, commit) now."""
     import ctypes
     from ctypes import wintypes as w
 
@@ -16,6 +17,8 @@ def peak_memory():
     k.GetCurrentProcess.restype = w.HANDLE
     p.GetProcessMemoryInfo.argtypes = [w.HANDLE, ctypes.c_void_p, w.DWORD]
     p.GetProcessMemoryInfo(k.GetCurrentProcess(), ctypes.byref(c), c.cb)
+    if current:
+        return c.ws / 2 ** 20, c.commit / 2 ** 20
     return c.peak_ws / 2 ** 20, c.peak_commit / 2 ** 20
 
 
