@@ -13,7 +13,8 @@ import streamlit.components.v1 as components
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src import earth, geo, ingest, live, uncertain  # noqa: E402
+from src import earth, geo, ingest, live, serve, uncertain  # noqa: E402
+from src.context import detail  # noqa: E402
 from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
 from src.features import add_features  # noqa: E402
@@ -700,6 +701,232 @@ with tab_results:
 ARCHIVE_SRC, LIVE_SRC = "Archive (Jan to Jun 2025)", "Live near real time"
 
 
+# ---------------------------------------------------------------- detail panel of a clicked detection
+# The globe page posts the clicked detection (or null) to the app page. This small component, which draws
+# nothing, passes it to Python. It only accepts messages from frames of this page.
+PICK_JS = """
+export default function(component) {
+  const { setTriggerValue } = component;
+  const onMsg = (ev) => {
+    const m = ev.data;
+    if (!m || m.type !== "earth-pick") return;
+    const ours = Array.from(document.querySelectorAll("iframe")).some(f => f.contentWindow === ev.source);
+    if (!ours) return;
+    setTriggerValue("pick", JSON.stringify({ sig: m.sig, pick: m.pick }));
+  };
+  if (window.__earthPick) window.removeEventListener("message", window.__earthPick);
+  window.__earthPick = onMsg;
+  window.addEventListener("message", onMsg);
+  return () => {
+    window.removeEventListener("message", onMsg);
+    if (window.__earthPick === onMsg) window.__earthPick = null;
+  };
+}
+"""
+
+
+@st.cache_resource
+def pick_component():
+    """The listener component, registered once. None when this Streamlit has no two way components."""
+    try:
+        from streamlit.components import v2 as components_v2
+        return components_v2.component("earth_pick", js=PICK_JS)
+    except Exception:
+        return None
+
+
+@st.cache_resource
+def panel_models():
+    """Both saved bundles with their calibrators and bands (small, about 0.3 MB each)."""
+    return serve.Models()
+
+
+def read_pick(suffix, view):
+    """The selected detection of this view, kept in the session. A new message replaces it; a change of the
+    view (filters, Show, selection, band) drops it, because the globe page is drawn again without it."""
+    key = f"earth_sel_{suffix}"
+    comp = pick_component()
+    if comp is not None:
+        try:
+            res = comp(key=f"earth_pick_{suffix}", on_pick_change=lambda: None)
+            raw = getattr(res, "pick", None)
+        except Exception:
+            raw = None
+        if raw:
+            msg = json.loads(raw)
+            st.session_state[key] = {"pick": msg.get("pick"), "view": view} if msg.get("pick") else None
+    sel = st.session_state.get(key)
+    if sel and sel.get("view") != view:
+        st.session_state[key] = sel = None
+    return sel["pick"] if sel else None
+
+
+def find_pick(g, pick):
+    """The row of g that the page names: position (the page rounds to 3 decimals), date, time, sensor."""
+    try:
+        lat, lon = float(pick["lat"]), float(pick["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    m = (np.abs(g["latitude"].to_numpy(float) - lat) <= 0.0006) & (np.abs(g["longitude"].to_numpy(float) - lon) <= 0.0006)
+    sub = g[m]
+    if pick.get("date"):
+        sub = sub[sub["acq_date"].dt.strftime("%Y-%m-%d") == pick["date"]]
+    if pick.get("time") and "timestamp" in sub:
+        sub = sub[sub["timestamp"].dt.strftime("%H:%M") == pick["time"]]
+    if pick.get("sensor") and "sensor" in sub:
+        sub = sub[sub["sensor"].astype(str) == pick["sensor"]]
+    return sub.iloc[0].to_dict() if len(sub) else None
+
+
+def panel_payload(row, base, is_live, band):
+    m = panel_models()
+    tier_name = st.session_state.get("earth_live_tier", HISTORY) if is_live else tier
+    key = "history" if tier_name == HISTORY else "instant"
+    bundle = m.hist if key == "history" else m.inst
+    bands = m.bands[key]
+    use_band = band or bands.get("default")
+    t = pd.Timestamp(row["timestamp"])
+    if is_live:
+        full = detail.store_row(row.get("sensor"), row["latitude"], row["longitude"], row["acq_date"],
+                                detail.acq_time_of(row))
+        if full:
+            for c in ("cc", "admin1", "city", "p_static", "pred_static"):
+                full[c] = row.get(c)
+            row = full
+        spread = detail.spread_from_store(float(row["latitude"]), float(row["longitude"]), t, row.get("cell_id"))
+    else:
+        spread = detail.spread_from_frame(base, float(row["latitude"]), float(row["longitude"]), t,
+                                          cell_days=detail.cell_days_from_frame(base, row.get("cell_id"), t),
+                                          source="archive file (January to June 2025)")
+    return detail.build(row, source="live" if is_live else "archive", tier=key, bundle=bundle, bands=bands,
+                        band=use_band, threshold=None, spread=spread)
+
+
+def _v(x, unit="", nd=None):
+    if x is None or x == "":
+        return "unavailable"
+    if nd is not None and isinstance(x, (int, float)):
+        x = f"{x:,.{nd}f}"
+    return f"{x}{unit}"
+
+
+def _age(fetched_at):
+    try:
+        mins = (pd.Timestamp.now(tz="UTC") - pd.Timestamp(fetched_at)).total_seconds() / 60
+    except Exception:
+        return ""
+    return "just now" if mins < 1 else f"{mins:.0f} minutes ago"
+
+
+def _src(section):
+    if section and section.get("source"):
+        st.caption(f"Source: {section['source']}, {_age(section.get('fetched_at'))}.")
+
+
+SHOWN = {"fire": "Predicted fire", "static": "Predicted static heat source",
+         "uncertain": "Uncertain, needs investigation"}
+
+
+def render_panel(p):
+    v, f, pl, s = p.get("verdict"), p.get("facts"), p.get("place"), p.get("spread")
+    st.markdown("**Verdict**")
+    if v:
+        st.markdown(f"### {SHOWN.get(v['shown'], v['shown'])}")
+        st.write(f"Tier: {v['tier']}. Calibrated probability of static: {_v(v['p'])} "
+                 f"(model score {_v(v['p_raw'])}, the number in the popup). "
+                 f"Band call: {v['band']}. Label at the operating point: {v['label']}.")
+        if p.get("nasa_label"):
+            st.write(f"NASA label: {p['nasa_label']}.")
+        if not v["trained"]:
+            st.warning(v["note"].capitalize() + ".")
+        if v["top_features"]:
+            st.write("What pushed the call most:")
+            st.markdown("\n".join(f"- {x['label']} = {x['value']}, {x['push']}" for x in v["top_features"]))
+        else:
+            st.caption("Top features unavailable: the archive file keeps only some of the model's features.")
+        _src(v)
+    else:
+        st.write("unavailable")
+
+    st.markdown("**Detection**")
+    if f:
+        pixel = (f"{f['scan'] * 1000:.0f} m by {f['track'] * 1000:.0f} m" if not f["nominal_pixel"]
+                 else "375 m (nominal, no scan and track in this data)")
+        st.markdown("\n".join([
+            f"- Time: {f['time_utc']} UTC, about {f['local_solar_time'][-5:]} local solar time",
+            f"- Satellite: {f['satellite']}",
+            f"- Brightness I-4: {_v(f['ti4'], ' K')}, I-5: {_v(f['ti5'], ' K')}",
+            f"- FRP: {_v(f['frp'], ' MW')}",
+            f"- Pixel: {pixel}",
+            f"- Day or night: {_v({'D': 'day', 'N': 'night'}.get(f['daynight'], f['daynight']))}",
+            f"- NASA confidence: {_v({'l': 'low', 'n': 'nominal', 'h': 'high'}.get(f['confidence'], f['confidence']))}",
+            f"- Position: {f['latitude']}, {f['longitude']}"]))
+        _src(f)
+    else:
+        st.write("unavailable")
+
+    st.markdown("**Place**")
+    if pl:
+        st.markdown("\n".join([f"- Country: {_v(pl['country'])}", f"- Province or state: {_v(pl['province'])}",
+                               f"- Nearest city: {_v(pl['city'])}", f"- Elevation: {_v(pl['elevation_m'], ' m')}"]))
+        _src(pl)
+    else:
+        st.write("unavailable")
+
+    st.markdown("**Spread and history**")
+    if s:
+        st.write(f"{s['n']:,} detections within {s['km']:g} km in the {s['hours']} hours up to this detection.")
+        if s["n"]:
+            st.markdown("\n".join(
+                [f"- {d['date']}: {d['n']}" for d in s["per_day"]] +
+                [f"- First seen {s['first_seen']} UTC, last seen {s['last_seen']} UTC",
+                 f"- Approximate area: {_v(s['area_km2'], ' square kilometres')} ({s['pixels']} pixels)",
+                 f"- Trend: {s['trend']}"] +
+                ([f"- Centre moved {s['move_km']} km" + (f" to the {s['move_dir']}" if s["move_dir"] else "")]
+                 if s["move_km"] is not None else [])))
+        st.write(f"Days seen at this cell in the last 90 days: {_v(s['cell_days_90'])}.")
+        st.caption(s["note"])
+        _src(s)
+    else:
+        st.write("unavailable")
+
+    for title in ("Land and fuel", "Weather", "People and buildings", "Response"):
+        st.markdown(f"**{title}**")
+        st.write("unavailable (not added yet)")
+
+    st.markdown("**Notes**")
+    for n in p.get("notes", []):
+        st.caption(n)
+    st.caption("Data: " + ", ".join(p.get("attribution", [])) + ".")
+
+
+def detail_panel(pick, g, base, is_live, bands, band, suffix):
+    """Side panel of the selected detection, or a short hint when nothing is selected."""
+    with st.container(border=True, height=700):
+        if pick_component() is None:
+            st.caption("The detail panel needs a Streamlit version with two way components.")
+            return
+        if not pick:
+            st.caption("Click a detection on the globe to see its details here.")
+            return
+        row = find_pick(g, pick)
+        if row is None:
+            st.caption("The selected detection is not in this view any more.")
+            return
+        cache_key = f"earth_detail_{suffix}"
+        ident = json.dumps([pick, tier, st.session_state.get("earth_live_tier"), str(band and band.get("target"))],
+                           sort_keys=True, default=str)
+        got = st.session_state.get(cache_key)
+        if not got or got[0] != ident:
+            try:
+                payload = panel_payload(row, base, is_live, band)
+            except Exception as e:
+                st.error(f"The details could not be made: {type(e).__name__}")
+                return
+            st.session_state[cache_key] = got = (ident, payload)
+        render_panel(got[1])
+
+
 def earth_tab(archive, tier, bundle):
     """One Earth: globe, flat map and terrain in a MapLibre page (needs internet for the tiles).
 
@@ -798,7 +1025,13 @@ def earth_body(src, archive, tier, bundle):
                                              for n in ("continent", "country", "province", "city")])
         page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
                           show, sig, demo, three_way=bool(band), codes=codes, kinds=kinds)
-        components.html(page, height=700)
+        view = "|".join([sig, show, focus, str(with_uncertain), str(band and band.get("target"))])
+        sel = read_pick(suffix, view)
+        c_map, c_panel = st.columns([7, 3])
+        with c_map:
+            components.html(page, height=700)
+        with c_panel:
+            detail_panel(sel, g, base, is_live, bands, band, suffix)
 
     m = st.columns(5 if band else 4)
     if band:

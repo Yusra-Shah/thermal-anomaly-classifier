@@ -299,8 +299,10 @@ Ideas not started: land cover and weather context (now part of section 12), unce
 ### Progress on the teacher's features (branch feature/selector-click-zoom)
 
 - 12.1 Fire or static selector: done, not yet reviewed by the owner.
-- 12.2 Click zoom and pixel footprint: in progress.
-- 12.3 Detail panel and section 13 context sources: not started.
+- 12.2 Click zoom and pixel footprint: done and checked in a browser (Back button, Escape, imagery capped at zoom 17 because zoom 18 tile requests timed out).
+- 12.3 Detail panel, step 2 of section 15: done with option A (Streamlit 1.67.0 components v2). Verdict, facts, place and spread from our own data, src/context/detail.py, src/devstore.py, tests/test_detail.py. Checked in a browser on an archive point: the globe stays zoomed while the panel fills. Not checked: a live point (no store yet, samples/sample_viirs.csv is missing).
+- Section 13 context sources (land, weather, people, response): not started.
+- On the contributor laptop a Windows application control policy blocks the pyarrow dataset library, so filtered parquet reads fail. read_recent now falls back to a row group reader; five filtered reads inside the ingest job and one in api/main.py still fail there (3 tests of test_ingest.py and 2 of test_api.py). Owner to decide whether those should use the fallback too.
 - Found while checking the clone: docs/PROJECT_CONTEXT.md and samples/sample_viirs.csv were not in the repository; the 17 November work (satellite icons, help lines, sample CSV) is not on GitHub; the archive files in data/processed have no scan and track columns, so archive footprints use the nominal 375 m pixel; live.KEEP_DAYS is 60 while ingest.KEEP_DAYS is 90; there is no top features explanation code to reuse yet.
 
 ## 12. Features requested by the teacher

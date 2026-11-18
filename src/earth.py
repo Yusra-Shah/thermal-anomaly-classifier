@@ -114,6 +114,12 @@ def payload(df, kinds, band=None, cap=MAX_POINTS):
     when = d["timestamp"].dt.strftime("%H:%M").tolist() if "timestamp" in d else [""] * len(d)
     # pixel size in km for the click footprint; the archive files have no scan and track, the page then
     # uses the nominal 375 m pixel and says so
+    # sensor per point (live), so a click names its detection: sensor, position, date and time
+    if "sensor" in d:
+        sc, sc_names = pd.factorize(d["sensor"].astype(str))
+        px_sensor = {"s": sc.tolist(), "sn": list(sc_names)}
+    else:
+        px_sensor = {"s": [], "sn": []}
     has_px = "scan" in d and "track" in d
     px = ({"sc": d["scan"].astype(float).round(3).tolist(), "tr": d["track"].astype(float).round(3).tolist()}
           if has_px else {"sc": [], "tr": []})
@@ -124,7 +130,7 @@ def payload(df, kinds, band=None, cap=MAX_POINTS):
         "k": d["_k"].astype(int).tolist(), "n": nasa, "dec": [int(x) for x in dec],
         "t": d["bright_ti4"].astype(float).round(1).tolist(), "f": d["frp"].astype(float).round(1).tolist(),
         "d": dt.tolist(), "dn": list(dt_names), "u": untrained, "tm": when, "g": cc.tolist(),
-        "gn": [geo.country_name(c) for c in cc_names], "a": pv.tolist(), "an": list(pv_names), **px}
+        "gn": [geo.country_name(c) for c in cc_names], "a": pv.tolist(), "an": list(pv_names), **px, **px_sensor}
     note = (f"Showing a random sample of {len(d):,} of {total:,} detections." if total > cap
             else f"Showing all {total:,} detections.")
     return data, note
@@ -558,6 +564,14 @@ function drawSel() {
   fpMarker.setLngLat([D.x[sel.i], top[1]]).addTo(map);
 }
 function closePopup() { if (popup) { const p = popup; popup = null; p.remove(); } }
+// Tell the app which detection is selected (null when none), so it can open or close the side panel.
+function postPick(i) {
+  try {
+    const pick = i === null ? null : { lat: D.y[i], lon: D.x[i], date: D.dn[D.d[i]], time: D.tm[i],
+      sensor: D.s && i < D.s.length ? D.sn[D.s[i]] : null };
+    window.parent.postMessage({ type: "earth-pick", sig: CFG.sig, pick: pick }, "*");
+  } catch (e) {}
+}
 function clearSel(back) {
   if (!sel) return;
   const prev = sel.prev;
@@ -567,6 +581,7 @@ function clearSel(back) {
   ["hl", "fp"].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
   if (fpMarker) { fpMarker.remove(); fpMarker = null; }
   document.getElementById("back").style.display = "none";
+  postPick(null);
   if (back) map.flyTo({ center: prev.center, zoom: prev.zoom, pitch: prev.pitch, bearing: prev.bearing, duration: 2000, essential: true });
 }
 function selectPoint(i) {
@@ -579,12 +594,13 @@ function selectPoint(i) {
   map.flyTo({ center: [D.x[i], D.y[i]], zoom: fitZoom(D.y[i], Math.max(px.scan, px.track)), pitch: 0, bearing: 0,
               duration: 2500, essential: true });
   note("Back, Escape or a click elsewhere returns the view.");
+  postPick(i);
 }
 function popupHtml(i) {
   const px = pixelKm(i);
   const nasa = D.n[i] < 0 ? "" : "NASA label: " + (D.n[i] === 1 ? "static" : "fire") + "<br>";
   return "<div class='pop'><b>Decision: " + (D.dec[i] === 1 ? "static heat source" : D.dec[i] === 0 ? "predicted fire" : "uncertain, needs investigation") + "</b><br>" +
-    "Probability of static: " + D.p[i] + "<br>" + nasa + "Brightness (I-4): " + D.t[i] + " K<br>FRP: " + D.f[i] + " MW<br>" +
+    "Model score for static (not calibrated): " + D.p[i] + "<br>" + nasa + "Brightness (I-4): " + D.t[i] + " K<br>FRP: " + D.f[i] + " MW<br>" +
     "Pixel: " + Math.round(px.scan * 1000) + " m by " + Math.round(px.track * 1000) + " m" + (px.nominal ? " (nominal)" : "") + "<br>" +
     "Date: " + D.dn[D.d[i]] + (D.tm[i] ? " " + D.tm[i] + " UTC" : "") + "<br>Country: " + D.gn[D.g[i]] + "<br>Province: " + D.an[D.a[i]] +
     (D.u[i] ? "<br><b style='color:#a05a00'>" + CFG.untrained.charAt(0).toUpperCase() + CFG.untrained.slice(1) + "</b>" : "") + "</div>";
