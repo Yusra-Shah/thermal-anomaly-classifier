@@ -733,8 +733,16 @@ def earth_body(src, archive, tier, bundle):
         bands = uncertain.bands_of(bundle, "best_model_headline_band.json" if tier == INSTANT
                                    else "best_model_history_band.json")
 
-    show = st.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, index=1, horizontal=True,
-                    key=f"earth_show_{suffix}")
+    c_show, c_focus = st.columns([3, 2])
+    show = c_show.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, index=1, horizontal=True,
+                        key=f"earth_show_{suffix}")
+    focus_on = show in earth.FOCUS_VIEWS
+    focus = c_focus.radio("Detections", earth.FOCUS, index=0, horizontal=True, key=f"earth_focus_{suffix}",
+                          disabled=not focus_on,
+                          help="Fires: predicted fire (NASA fire in Ground truth). Static sources: predicted "
+                               "static heat source (NASA static in Ground truth). Both: all detections.")
+    if not focus_on:
+        c_focus.caption(f"Not used in {show}: every detection is drawn.")
     st.caption("In Model prediction the Band selector decides fire, static or uncertain. The sidebar threshold "
                "only affects the Map tab and the Errors only view.")
     if is_live:
@@ -759,6 +767,13 @@ def earth_body(src, archive, tier, bundle):
         if band.get("oof_coverage", 0) >= 0.999:
             st.caption("On the training scores the forced binary decision already meets this target, so the "
                        "band decides every point and there are no uncertain points. Try strict (0.98).")
+    with_uncertain = True
+    if band and show == "Model prediction":
+        with_uncertain = c_focus.checkbox("Include uncertain", value=True, key=f"earth_unc_{suffix}",
+                                          disabled=focus != "Fires",
+                                          help="With Fires, also draw the uncertain (amber) points, so hedged "
+                                               "calls are not hidden.")
+    codes = earth.focus_codes(show, focus, with_uncertain)
     g, cc, province, city = geo_filters(base, prefix)
     if g.empty:
         st.info("No detections for this selection.")
@@ -766,17 +781,23 @@ def earth_body(src, archive, tier, bundle):
     if band:
         g = g.assign(p_cal=uncertain.apply_calibrator(bands["calibrator"], g["p_static"].to_numpy()))
     drawn, kinds = earth.select(g, show, band)
+    drawn, kinds = earth.apply_focus(drawn, kinds, codes)          # before the point cap, so counts are complete
     data, note = earth.payload(drawn, kinds, band)
     if drawn.empty:
-        st.info("No errors in this selection.")
+        st.info("No errors in this selection." if show == "Errors only"
+                else "No detections match this selection.")
     else:
         filtered = len(g) < len(base)
-        st.caption(note + " Same tier and operating point as the Map tab for the archive. Needs internet "
+        picked = f" Selection: {focus}." if codes is not None else ""
+        st.caption(note + picked + " Same tier and operating point as the Map tab for the archive. Needs internet "
                    "for the imagery. To see every detection around one place, pick a province or a nearest city.")
+        st.caption("Click a detection to fly to it and see its satellite pixel footprint (an approximate rectangle "
+                   "of scan by track, centred on the reported point). Escape or a click elsewhere returns the view. "
+                   "The archive has no scan and track, so archive footprints use the nominal 375 m pixel.")
         sig = "|".join([src, str(region)] + [str(st.session_state.get(f"{prefix}_{n}"))
                                              for n in ("continent", "country", "province", "city")])
         page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
-                          show, sig, demo, three_way=bool(band))
+                          show, sig, demo, three_way=bool(band), codes=codes, kinds=kinds)
         components.html(page, height=700)
 
     m = st.columns(5 if band else 4)
