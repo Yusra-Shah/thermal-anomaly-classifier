@@ -323,8 +323,8 @@ def test_satellite_legend_text():
 def test_help_lines():
     assert earth.SHOW_HELP == ("Raw detection: a hot pixel reported by the satellite, not classified. Model prediction: "
                                "our classification of each detection as fire, static or uncertain.")
-    assert earth.LIVE_NOTE == ("Predicted fire means any vegetation fire, including routine farm and savanna burning. "
-                               "It does not mean a reported wildfire event.")
+    assert earth.LIVE_NOTE == ("Predicted fire means any vegetation fire, including routine burning, not a reported "
+                               "wildfire event.")
     d = pd.DataFrame({"longitude": [10.0], "latitude": [5.0], "p_static": [0.1], "pred_static": [0],
                       "bright_ti4": [330.0], "frp": [1.0], "acq_date": pd.to_datetime(["2026-11-15"]),
                       "cc": ["NG"], "admin1": ["a"]})
@@ -332,7 +332,7 @@ def test_help_lines():
     shapes = {"sel": None, "provs": None, "prov": None}
     live_html = earth.html(data, None, shapes, "Model prediction", "s", live_source=True)
     archive_html = earth.html(data, None, shapes, "Model prediction", "s")
-    assert earth.LIVE_NOTE in live_html and earth.LIVE_NOTE not in archive_html
+    assert earth.LIVE_NOTE in live_html and earth.LIVE_NOTE in archive_html        # one line in the legend of every source
 
 
 def test_selector_legend_satellites_and_help_work_together():
@@ -356,6 +356,58 @@ def test_selector_legend_satellites_and_help_work_together():
     both = earth.html(data, None, shapes, "Model prediction", "s", codes=earth.focus_codes("Model prediction", "Both"),
                       kinds=kinds, live_source=True)
     assert "Predicted fire (2)" in both and "Predicted static (1)" in both
+
+
+def test_legend_is_collapsible_short_and_starts_collapsed_after_the_first_click():
+    _, html = page()
+    for piece in ("id='legtoggle'", "function setLegend", "legendCollapsed", "earth_legend_seen",
+                  "Collapse the legend", "Show the legend"):
+        assert piece in html, piece
+    # one line when collapsed: the entries joined; the satellites and the counts are in the part that collapses
+    assert 'CFG.legend.map(l => l[2]).join(", ")' in html
+    body = html.split("if (!legendCollapsed) {")[1].split("lg.innerHTML")[0]
+    assert "SATS.map" in body and "In source" in body and "Illustrative orbits" in body
+    head = html.split("let html = ")[1].split("if (!legendCollapsed)")[0]
+    assert "SATS" not in head and "In source" not in head
+    # the first click on a detection collapses it, once per session
+    sel = html.split("function selectPoint(i)")[1].split("map.flyTo")[0]
+    assert 'sessionStorage.getItem("earth_legend_seen")' in sel and "setLegend(true)" in sel
+    assert "Predicted fire (" not in html or earth.LEGENDS["Model prediction"][0][2] == "Predicted fire"
+
+
+def test_drawer_overlay_css_arrow_and_close_paths():
+    import re
+    app_source = (Path(__file__).resolve().parents[1] / "app" / "app.py").read_text(encoding="utf-8")
+    css = app_source.split("LAYOUT_CSS = (")[1].split("# The globe page posts")[0]
+    assert "position: absolute" in css and "right: 8px" in css and "min(400px, 92%)" in css      # laid over the right side
+    assert "earth_stage_" in css and "position: relative" in css                              # the globe is never narrowed
+    assert "st-key-earth_close_" in css and "top: 324px" in css and "calc(min(400px, 92%) - 6px)" in css   # the arrow, mid edge
+    # the drawer and the arrow exist only while a detection is selected
+    body = app_source.split("with st.container(key=f\"earth_stage_{suffix}\"):")[1].split("if pick_component() is None")[0]
+    assert "if sel:" in body and "earth_drawer_" in body and "earth_close_" in body and "close_drawer(" in body
+    assert "st.columns([7, 3])" not in app_source                                             # no fixed side column any more
+    # closing: the arrow clears the selection and tells the globe page; Escape and empty globe close from the page
+    assert 'st.session_state[f"earth_sel_{suffix}"] = None' in app_source
+    assert 'type: "earth-close"' in app_source and "keydown" in app_source
+    _, html = page()
+    assert 'e.key === "Escape") clearSel(true)' in html
+    assert "if (!hits.length) { clearSel(true); return; }" in html                            # a click on empty globe
+    assert 'm.type === "earth-close"' in html and "clearSel(true)" in html
+    assert "padding: { top: 0, bottom: 0, left: 0, right: drawerPad() }" in html               # the point is centred beside the drawer
+    assert "padding: { top: 0, bottom: 0, left: 0, right: 0 }" in html                         # full width again after closing
+
+
+def test_channels_keep_the_globes_apart():
+    """The Earth tab and the Classify tab each have a globe: a pick names its channel."""
+    d = pd.DataFrame({"longitude": [10.0], "latitude": [5.0], "p_static": [0.1], "pred_static": [0],
+                      "bright_ti4": [330.0], "frp": [1.0], "acq_date": pd.to_datetime(["2026-11-15"]),
+                      "cc": ["NG"], "admin1": ["a"]})
+    data, _ = earth.payload(d, d["pred_static"].to_numpy())
+    shapes = {"sel": None, "provs": None, "prov": None}
+    for ch in ("l", "a", "u"):
+        html = earth.html(data, None, shapes, "Model prediction", "s", channel=ch)
+        assert f'"ch":"{ch}"' in html
+    assert "ch: CFG.ch" in html
 
 
 def test_nearest_place_wording_and_predicted_fire_legend():

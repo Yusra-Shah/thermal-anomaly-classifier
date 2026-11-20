@@ -25,6 +25,12 @@ Fetched days are first written to data/live/ingest_state/staged, one file per se
 days merged into the store are listed in data/live/ingest_state/merged.txt. A run that stops half way keeps
 what it fetched, and the next run asks only for the days that are missing plus the latest three.
 
+One ingest at a time. python -m src.ingest takes a lock file (data/live/ingest_state/ingest.lock, holding its
+process id) before a round and releases it afterwards, so the loop, a run by hand and the Update live data button
+of the app protect each other. A second ingest that finds a live lock prints "another ingest is running" and does
+no work. A lock whose process no longer exists is stale and is replaced. A loop also holds loop.lock for its whole
+life, so a second loop exits at once; a round that finds the other lock busy is skipped and the loop goes on.
+
 Calls use the fetch logic of src/live.py with a day range of 1 to 5, a short wait between calls and a
 sliding window budget below the limit of 5000 transactions per 10 minutes. The map key comes from
 FIRMS_MAP_KEY (environment or .env). It is never printed. A failed call prints only the exception class
@@ -84,6 +90,96 @@ def safe_message(e):
     inner = re.search(r"network error \((\w+)\)", text)
     cls = inner.group(1) if inner else type(e).__name__
     return f"{cls}, HTTP status {status}"
+
+
+# ------------------------------------------------------------------ one ingest at a time
+LOCK_MESSAGE = "another ingest is running"
+LOCK_YOUNG_SECONDS = 5           # a lock file without a process id yet is trusted for this long
+
+
+def state_dir(path=None):
+    """Folder of the lock files, the staged days and the ledger, next to the store."""
+    return (path or store_path()).parent / "ingest_state"
+
+
+def pid_alive(pid):
+    """Whether a process with this id is running. Does not send any signal on Windows."""
+    if not pid:
+        return False
+    if os.name == "nt":
+        import ctypes
+        k = ctypes.WinDLL("kernel32")
+        k.OpenProcess.restype = ctypes.c_void_p
+        h = k.OpenProcess(0x1000, False, int(pid))              # query limited information
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k.GetExitCodeProcess(ctypes.c_void_p(h), ctypes.byref(code))
+        k.CloseHandle(ctypes.c_void_p(h))
+        return bool(ok) and code.value == 259                   # still active
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
+
+
+class Lock:
+    """A lock file that holds the process id of its owner. acquire() is False while the owner is alive; a lock of a
+    process that no longer exists is stale and is replaced."""
+
+    def __init__(self, name="ingest.lock", path=None):
+        self.file = state_dir(path) / name
+        self.held = False
+
+    def owner(self):
+        try:
+            text = self.file.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        return int(text) if text.isdigit() else None
+
+    def alive(self):
+        """True while a process that holds the lock is running."""
+        if not self.file.exists():
+            return False
+        pid = self.owner()
+        if pid is None:                                          # just created, the process id is not written yet
+            try:
+                return (datetime.now().timestamp() - self.file.stat().st_mtime) < LOCK_YOUNG_SECONDS
+            except OSError:
+                return False
+        return pid_alive(pid)
+
+    def acquire(self):
+        self.file.parent.mkdir(parents=True, exist_ok=True)
+        for _ in range(2):
+            try:
+                fd = os.open(str(self.file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                if self.alive():
+                    return False
+                try:
+                    self.file.unlink()                           # stale: its process is gone
+                except OSError:
+                    return False
+                continue
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
+            self.held = True
+            return True
+        return False
+
+    def release(self):
+        """Remove the lock if this process holds it."""
+        if self.held and self.owner() == os.getpid():
+            try:
+                self.file.unlink()
+            except OSError:
+                pass
+        self.held = False
 
 
 class RateLimiter:
@@ -759,13 +855,20 @@ def main(argv=None):
     ap.add_argument("--regions", default="all", help="all (default), trained, or a comma separated list of regions")
     a = ap.parse_args(argv)
     from .mem import report
-    if a.rebuild_score:
-        r = rebuild_score(trace=True)
-        print(f"rows scored: {r['rows']:,}")
-        report("ingest rebuild-score")
-        return
-    if a.import_live:
-        import_live()
+    lock = Lock()
+    if a.rebuild_score or a.import_live:                         # both rewrite the store: one at a time as well
+        if not lock.acquire():
+            print(LOCK_MESSAGE, flush=True)
+            return
+        try:
+            if a.rebuild_score:
+                r = rebuild_score(trace=True)
+                print(f"rows scored: {r['rows']:,}")
+                report("ingest rebuild-score")
+            else:
+                import_live()
+        finally:
+            lock.release()
         return
     if a.measure_cost:
         key = live.load_key()
@@ -781,16 +884,30 @@ def main(argv=None):
     key = live.load_key()
     if not key:
         raise SystemExit("No map key found in the environment or .env")
-    models = serve.Models()
-    while True:
-        try:
-            run_once(key, models=models, trace=True, regions=pick_regions(a.regions))
-        except Exception as e:                               # a failed round must not stop the loop
-            print(f"ingest failed: {safe_message(e)}", flush=True)
-        report("ingest run")
-        if not a.loop:
-            break
-        time.sleep(a.every_minutes * 60)
+    loop_lock = Lock("loop.lock") if a.loop else None
+    if loop_lock is not None and not loop_lock.acquire():       # a second loop exits at once
+        print(LOCK_MESSAGE, flush=True)
+        return
+    try:
+        models = None
+        while True:
+            if lock.acquire():                                   # the lock is held for the round only
+                try:
+                    models = models or serve.Models()
+                    run_once(key, models=models, trace=True, regions=pick_regions(a.regions))
+                except Exception as e:                           # a failed round must not stop the loop
+                    print(f"ingest failed: {safe_message(e)}", flush=True)
+                finally:
+                    lock.release()
+                report("ingest run")
+            else:
+                print(LOCK_MESSAGE + (", this round is skipped" if a.loop else ""), flush=True)
+            if not a.loop:
+                break
+            time.sleep(a.every_minutes * 60)
+    finally:
+        if loop_lock is not None:
+            loop_lock.release()
 
 
 if __name__ == "__main__":

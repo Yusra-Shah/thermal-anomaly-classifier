@@ -1,8 +1,10 @@
 """Update live data from the app: python -m src.ingest --once in a background process.
 
-One update runs at a time. A lock file in the ingest state folder holds the process id, the output of the process
-goes to a log file in the same folder, and the status shown in the app is read from the lock and the log, so it
-survives a restart of the app. Nothing here prints or stores the map key, a URL, a header or a traceback: a failure
+One ingest runs at a time, whoever started it: python -m src.ingest takes the lock file ingest.lock itself (see
+src/ingest.py), so an update from the app, the loop script and a run by hand protect each other. Here the file
+update.lock only holds the process id of the update this page started, for the moment before that process has taken
+the ingest lock. The output of the process goes to a log file in the ingest state folder, and the status shown in
+the app is read from the locks and the log, so it survives a restart of the app. Nothing here prints or stores the map key, a URL, a header or a traceback: a failure
 is shown as the exception class and the HTTP status only, and only lines of the known safe shapes of the log are
 shown.
 """
@@ -24,7 +26,7 @@ SAFE_LINE = re.compile(r"^(NOAA-\d\d[: ]|\[memory\]|failed calls|ingest failed)"
 
 
 def state_dir():
-    return ingest.store_path().parent / "ingest_state"
+    return ingest.state_dir()
 
 
 def lock_path():
@@ -39,31 +41,17 @@ def status_path():
     return state_dir() / "update.json"
 
 
+def ingest_running():
+    """True while any ingest (this page's update, the loop or a run by hand) holds the ingest lock."""
+    return ingest.Lock().alive()
+
+
 def key_missing():
     """True when there is no map key. The key itself is never returned."""
     return not live.load_key()
 
 
-def pid_alive(pid):
-    """Whether a process with this id is running. Does not send any signal on Windows."""
-    if not pid:
-        return False
-    if os.name == "nt":
-        import ctypes
-        k = ctypes.WinDLL("kernel32")
-        k.OpenProcess.restype = ctypes.c_void_p
-        h = k.OpenProcess(0x1000, False, int(pid))              # query limited information
-        if not h:
-            return False
-        code = ctypes.c_ulong()
-        ok = k.GetExitCodeProcess(ctypes.c_void_p(h), ctypes.byref(code))
-        k.CloseHandle(ctypes.c_void_p(h))
-        return bool(ok) and code.value == 259                   # still active
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except OSError:
-        return False
+pid_alive = ingest.pid_alive
 
 
 def _lock_pid():
@@ -75,7 +63,10 @@ def _lock_pid():
 
 
 def is_running():
-    """True while the process of an update is alive. A lock whose process is gone is removed."""
+    """True while an ingest is running: the process of an update started here, or any ingest holding the ingest
+    lock. A lock of this page whose process is gone is removed."""
+    if ingest_running():
+        return True
     p = lock_path()
     if not p.exists():
         return False
@@ -107,6 +98,8 @@ def start(cmd=None, cwd=None, env=None):
     """Start an update unless one is running. Returns "started", "running" or "failed" (class name only)."""
     d = state_dir()
     d.mkdir(parents=True, exist_ok=True)
+    if ingest_running():
+        return "running"
     try:
         fd = os.open(str(lock_path()), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.close(fd)
@@ -152,6 +145,8 @@ def parse_log(text):
         last = [ln for ln in text.splitlines() if ln.strip()][-1]
         cls = re.match(r"^([A-Za-z_][\w.]*)(:|$)", last.strip())
         return "failed", f"{cls.group(1) if cls else 'error'}, HTTP status none"
+    if ingest.LOCK_MESSAGE in text and "ingest run: peak" not in text:
+        return "finished", "another ingest was already running, so this update did nothing"
     if "No map key" in text:
         return "failed", "no map key found"
     if "ingest run: peak" in text:
@@ -183,6 +178,8 @@ def status():
            "lines": safe_lines(text)}
     if is_running():
         out["state"] = "running"
+        if not lock_path().exists():                  # started elsewhere (the loop or by hand), not by this page
+            out["started"] = None
         return out
     if meta.get("state") == "failed" and meta.get("message") and not text:
         out.update(state="failed", message=meta["message"])

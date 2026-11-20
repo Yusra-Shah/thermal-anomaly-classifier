@@ -600,16 +600,6 @@ def test_app_demo(tmp):
     print("earth demo snapshot test passed")
 
 
-def points_drawn(at):
-    """Points sent to the browser by every pydeck map on the page, from the deck specs."""
-    import json
-    out = []
-    for el in at.get("deck_gl_json_chart"):
-        spec = json.loads(el.proto.json)
-        out.append(sum(len(layer["data"]) for layer in spec["layers"] if layer["@@type"] == "ScatterplotLayer"))
-    return out
-
-
 def test_app_geo(tmp):
     """Four filters on the Earth tab (archive and live), defaults and resets."""
     import time
@@ -826,8 +816,11 @@ def test_app_front(tmp):
     gc.collect()
     at = run_app(tmp, "fake")
     assert not at.exception, at.exception
-    assert [t.label for t in at.tabs] == ["Earth", "Why a spot is static", "Classify a new file", "Model metrics",
-                                          "Results"]                        # Map is gone, Earth is first
+    assert [t.label for t in at.tabs] == ["Earth", "Data and features", "Why a spot is static", "Classify a new file",
+                                          "Model metrics", "Results"]       # Map is gone, Earth is first, data second
+    heads = [h.value for h in at.subheader]
+    for want in ("Data sources", "Labels", "Regions", "Features", "Split and checks", "Live store"):
+        assert want in heads, heads
     assert at.radio(key="earth_source").value == LIVE_SRC                   # live is the default source
     assert at.radio(key="earth_source").options == [LIVE_SRC, ARCHIVE_SRC]
     assert at.radio(key="earth_model").value == HISTORY_TIER                # Earth's own tier, history by default
@@ -898,7 +891,7 @@ def test_app_front(tmp):
         assert "uses a lot of memory" in updater.WARNING and "Close other programs" in updater.WARNING
         at.button(key="update_live").click().run()
         assert not at.exception, at.exception
-        assert any("Update running" in i.value for i in at.info), [i.value for i in at.info]
+        assert any("An ingest is running" in i.value for i in at.info), [i.value for i in at.info]
         assert at.button(key="update_live").proto.disabled                      # one update at a time
         assert updater.start() == "running"                                     # a second start is refused
         for _ in range(60):
@@ -919,8 +912,112 @@ def earth_module_banner():
     return earth.ARCHIVE_BANNER
 
 
+def fake_upload(frame_or_path, name="upload.csv"):
+    """What st.file_uploader returns for a CSV: a file like object with a name and a size."""
+    import io
+
+    class Upload(io.BytesIO):
+        pass
+    if isinstance(frame_or_path, (str, Path)):
+        data = Path(frame_or_path).read_bytes()
+    else:
+        data = frame_or_path.to_csv(index=False).encode()
+    up = Upload(data)
+    up.name, up.size = name, len(data)
+    return up
+
+
+def test_app_classify(tmp):
+    """Classify a new file uses the Earth globe: satellites toggle, selector, counters, the cap of 30000 points,
+    the sidebar tier and its warning. No flat map any more."""
+    import streamlit as st
+    from src import earth
+    live.LIVE_DIR = Path(tmp)
+    sample = Path(__file__).resolve().parents[1] / "samples" / "sample_viirs.csv"
+    real = st.file_uploader
+    try:
+        st.file_uploader = lambda *a, **k: fake_upload(sample, "sample_viirs.csv")
+        at = None
+        gc.collect()
+        at = run_app(tmp, None)
+        assert not at.exception, [e.value for e in at.exception]
+        assert not at.get("deck_gl_json_chart")                                  # the flat map is gone
+        pages = [e.proto.srcdoc for e in at.get("iframe") if '"ch":"u"' in e.proto.srcdoc]
+        assert len(pages) == 1
+        html = pages[0]
+        assert 'id="sat"' in html and "Satellites" in html and "function selectPoint" in html     # same globe
+        assert "Predicted fire (" in html and earth.LIVE_NOTE in html
+        assert at.radio(key="earth_show_u").options == earth.SHOW[:2]               # no ground truth in an upload
+        assert at.radio(key="earth_focus_u").value == "Fires"
+        counters = [m for m in at.metric if m.label == "Detections in Earth"]
+        assert counters and int(counters[-1].value.replace(",", "")) > 1500
+        assert any("detections," in w.value and "predicted static" in w.value for w in at.markdown)
+        assert any("Instant by default" in c.value and "30 days or more" in c.value for c in at.caption)
+        assert not any("fewer than" in w.value for w in at.warning)                  # the instant tier, no warning
+        at.sidebar.radio[0].set_value(HISTORY_TIER).run()                            # the sidebar tier and its warning
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("fewer than 30" in w.value and "History features will be weak" in w.value for w in at.warning)
+        # a big file: a random sample of 30000 points is drawn and the counters count every point
+        big = pd.read_csv(sample)
+        parts = []
+        for k in range(18):
+            part = big.copy()
+            part["latitude"] = part["latitude"] + k * 0.0002
+            parts.append(part)
+        big = pd.concat(parts, ignore_index=True)
+        st.file_uploader = lambda *a, **k: fake_upload(big, "big.csv")
+        at = None
+        gc.collect()
+        at = run_app(tmp, None)
+        assert not at.exception, [e.value for e in at.exception]
+        total = [m for m in at.metric if m.label == "Detections in Earth"][-1].value
+        drawn = [m for m in at.metric if m.label == "Circles drawn"][-1].value
+        assert int(total.replace(",", "")) > 30_000 and drawn == "30,000", (total, drawn)
+        assert any("random sample of 30,000" in c.value for c in at.caption)
+    finally:
+        st.file_uploader = real
+    print("classify globe test passed")
+
+
+def test_app_drawer(tmp):
+    """The detail drawer exists only while a detection is selected, shows its sections, and the arrow closes it."""
+    from src import ingest
+    from tests import fake_feed
+    live.LIVE_DIR = Path(tmp)
+    ingest.run_once("fake", fetch=fake_feed.fetch_factory(fake_feed.masters(10)), sleep=lambda s: None,
+                    log=lambda *a: None, limiter=fake_feed.fast_limiter())
+    store = ingest.read_store()
+    at = None
+    gc.collect()
+    at = run_app(tmp, None)
+    assert not at.exception, [e.value for e in at.exception]
+    assert not any(b.key == "earth_closebtn_l" for b in at.button)             # nothing over the globe by default
+    assert not any("Click a detection on the globe to see its details here" in c.value for c in at.caption)
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    recent = store[store["timestamp"] >= now - pd.Timedelta(hours=24)]
+    row = recent.iloc[0]
+    view = at.session_state["earth_view_l"]
+    pick = {"lat": round(float(row["latitude"]), 3), "lon": round(float(row["longitude"]), 3),
+            "date": f"{row['acq_date']:%Y-%m-%d}", "time": f"{row['timestamp']:%H:%M}", "sensor": row["sensor"]}
+    at.session_state["earth_sel_l"] = {"pick": pick, "view": view}
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any(b.key == "earth_closebtn_l" for b in at.button)                    # the drawer and its arrow are there
+    text = " ".join(m.value for m in at.markdown)
+    for want in ("Verdict", "Detection", "Place", "Spread and history"):
+        assert want in text, want
+    assert "Nearest place:" in text and "Country:" not in text
+    n = at.session_state["earth_close_n_l"] if "earth_close_n_l" in at.session_state else 0
+    at.button(key="earth_closebtn_l").click().run()                             # the arrow closes it
+    assert not at.exception, [e.value for e in at.exception]
+    assert not any(b.key == "earth_closebtn_l" for b in at.button)
+    assert at.session_state["earth_sel_l"] is None and at.session_state["earth_close_n_l"] == n + 1
+    print("detail drawer test passed")
+
+
 SUITES = {"unit": suite_unit, "app_store": test_app_store, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
-          "app_earth": test_app_earth, "app_front": test_app_front}
+          "app_earth": test_app_earth, "app_front": test_app_front, "app_classify": test_app_classify,
+          "app_drawer": test_app_drawer}
 
 
 def main(names=None):

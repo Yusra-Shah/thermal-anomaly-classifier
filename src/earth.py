@@ -12,8 +12,8 @@ from . import geo, live, uncertain
 
 MAPLIBRE = "5.6.0"
 MAX_POINTS = 20_000
-LIVE_NOTE = ("Predicted fire means any vegetation fire, including routine farm and savanna burning. "
-             "It does not mean a reported wildfire event.")
+LIVE_NOTE = ("Predicted fire means any vegetation fire, including routine burning, not a reported wildfire "
+             "event.")
 SHOW_HELP = ("Raw detection: a hot pixel reported by the satellite, not classified. Model prediction: our "
              "classification of each detection as fire, static or uncertain.")
 ARCHIVE_BANNER = ("These detections include the training data. Use Only held out test detections for "
@@ -165,11 +165,11 @@ def outlines(cc, province, df=None):
 
 
 def html(data, box, shapes, show, sig, demo=False, height=700, three_way=False, codes=None, kinds=None,
-         live_source=False):
+         live_source=False, channel="a"):
     cfg = {"data": data, "box": box, "shapes": shapes, "lines": geo.country_lines(), "demo": demo,
            "legend": legend(show, three_way, codes, kinds), "sig": sig, "untrained": live.UNTRAINED_NOTE,
-           "any_untrained": any(data.get("u", [])), "live_note": LIVE_NOTE if live_source else "",
-           "sat_notes": SAT_NOTES}
+           "any_untrained": any(data.get("u", [])), "live_note": LIVE_NOTE, "sat_notes": SAT_NOTES,
+           "ch": channel}
     page = (TEMPLATE.replace("__VER__", MAPLIBRE).replace("__HEIGHT__", str(height - 24))
             .replace("__ATTR__", ATTRIBUTION).replace("__CFG__", json.dumps(cfg, separators=(",", ":"))))
     return BOOT.replace("__PAGE__", page.replace("</script", "<\\/script"))
@@ -200,7 +200,11 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
 #msg { position: absolute; bottom: 30px; left: 8px; background: rgba(255,255,255,.9); padding: 2px 6px; font-size: 11px; z-index: 2; }
 .pop { font: 12px sans-serif; line-height: 1.5; }
 #satcv { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; }
-#legend { position: absolute; top: 44px; left: 8px; z-index: 2; background: rgba(255,255,255,.92); padding: 5px 8px; font: 11px sans-serif; line-height: 1.6; border-radius: 3px; }
+#legend { position: absolute; top: 44px; left: 8px; z-index: 2; background: rgba(255,255,255,.92); padding: 5px 8px; font: 11px sans-serif; line-height: 1.6; border-radius: 3px; max-width: 280px; }
+#legend .lghead { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-weight: bold; }
+#legtoggle { width: 18px; height: 18px; padding: 0; line-height: 14px; border: 1px solid #999; border-radius: 3px; background: #fff; cursor: pointer; font: bold 12px sans-serif; }
+#legend .lgnote { color: #444; line-height: 1.35; margin: 2px 0; }
+#legend .lgmuted { color: #666; }
 #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid #fff; }
 .fplab { background: rgba(0,0,0,.75); color: #fff; font: 11px sans-serif; padding: 2px 6px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
 </style></head>
@@ -267,7 +271,7 @@ setInterval(() => {
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 window.earthMap = map;
 window.earthState = { spinning: () => spin, mode: () => mode, satellites: () => satOn, easing: () => easing,
-                      selected: () => (sel ? sel.i : null) };
+                      selected: () => (sel ? sel.i : null), legendCollapsed: () => legendCollapsed };
 
 function points() {
   const f = [];
@@ -342,17 +346,36 @@ function terrainFor() {
   if (!on && has) map.setTerrain(null);
 }
 
+// The legend collapses to one line with its small button. It starts collapsed after the first click on a
+// detection of the browser session, and the choice is kept when the page is drawn again.
+let legendCollapsed = false;
+try { legendCollapsed = sessionStorage.getItem("earth_legend") === "1"; } catch (e) {}
+function setLegend(c) {
+  legendCollapsed = c;
+  try { sessionStorage.setItem("earth_legend", c ? "1" : "0"); } catch (e) {}
+  stats();
+}
+document.getElementById("legend").addEventListener("click", (e) => {
+  if (e.target && e.target.id === "legtoggle") setLegend(!legendCollapsed);
+});
 function stats() {
   const lg = document.getElementById("legend");
   let inView = 0;
   try { inView = map.getLayer("pts") ? map.queryRenderedFeatures({ layers: ["pts"] }).length : 0; } catch (e) {}
   window.earthStats = { source: D.x.length, inView: inView };
-  lg.innerHTML = CFG.legend.map(l => "<div><i style='background:" + l[1] + "'></i>" + l[2] + "</div>").join("") +
-    (CFG.live_note ? "<div style='color:#444;max-width:260px;line-height:1.35;margin:2px 0'>" + CFG.live_note + "</div>" : "") +
-    (CFG.any_untrained ? "<div style='color:#a05a00'>Some detections: " + CFG.untrained + "</div>" : "") +
-    (satOn ? SATS.map(q => "<div><i style='background:" + q.color + "'></i>" + CFG.sat_notes[q.name] + "</div>").join("") +
-      "<div style='color:#666'>Illustrative orbits, not real positions</div>" : "") +
-    "<div style='color:#666'>In source " + D.x.length.toLocaleString() + ", in view " + inView.toLocaleString() + "</div>";
+  const dot = (c, t) => "<div><i style='background:" + c + "'></i>" + t + "</div>";
+  let html = "<div class='lghead'><button id='legtoggle' aria-expanded='" + (!legendCollapsed) + "' title='" +
+    (legendCollapsed ? "Show the legend" : "Collapse the legend") + "'>" + (legendCollapsed ? "+" : "-") + "</button><span>" +
+    (legendCollapsed ? CFG.legend.map(l => l[2]).join(", ") : "Legend") + "</span></div>";
+  if (!legendCollapsed) {
+    html += CFG.legend.map(l => dot(l[1], l[2])).join("");
+    if (CFG.live_note && CFG.legend.some(l => l[2].indexOf("Predicted fire") === 0)) html += "<div class='lgnote'>" + CFG.live_note + "</div>";
+    if (CFG.any_untrained) html += "<div style='color:#a05a00'>Some detections: " + CFG.untrained + "</div>";
+    if (satOn) html += SATS.map(q => dot(q.color, CFG.sat_notes[q.name])).join("") +
+      "<div class='lgmuted'>Illustrative orbits, not real positions</div>";
+    html += "<div class='lgmuted'>In source " + D.x.length.toLocaleString() + ", in view " + inView.toLocaleString() + "</div>";
+  }
+  lg.innerHTML = html;
 }
 try { stats(); } catch (e) {}                      // the legend shows before the first idle
 map.on("idle", stats);
@@ -611,7 +634,7 @@ function postPick(i) {
   try {
     const pick = i === null ? null : { lat: D.y[i], lon: D.x[i], date: D.dn[D.d[i]], time: D.tm[i],
       sensor: D.s && i < D.s.length ? D.sn[D.s[i]] : null };
-    window.parent.postMessage({ type: "earth-pick", sig: CFG.sig, pick: pick }, "*");
+    window.parent.postMessage({ type: "earth-pick", sig: CFG.sig, ch: CFG.ch, pick: pick }, "*");
   } catch (e) {}
 }
 function clearSel(back) {
@@ -624,8 +647,16 @@ function clearSel(back) {
   if (fpMarker) { fpMarker.remove(); fpMarker = null; }
   document.getElementById("back").style.display = "none";
   postPick(null);
-  if (back) map.flyTo({ center: prev.center, zoom: prev.zoom, pitch: prev.pitch, bearing: prev.bearing, duration: 2000, essential: true });
+  if (back) map.flyTo({ center: prev.center, zoom: prev.zoom, pitch: prev.pitch, bearing: prev.bearing, duration: 2000,
+                       essential: true, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
 }
+// The app answers a closed drawer (the arrow button, or Escape in the app page) with this message.
+window.addEventListener("message", (e) => {
+  const m = e.data;
+  if (m && m.type === "earth-close" && (m.ch === undefined || m.ch === CFG.ch)) clearSel(true);
+});
+// The detail drawer covers the right side of the globe, so a selected point is centred in the rest.
+function drawerPad() { return Math.min(420, Math.round((map.getCanvas().clientWidth || 800) * 0.42)); }
 function selectPoint(i) {
   const px = pixelKm(i);
   if (!sel) sel = { prev: { center: map.getCenter().toArray(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() } };
@@ -633,8 +664,11 @@ function selectPoint(i) {
   setSpin(false);
   drawSel();
   document.getElementById("back").style.display = "inline-block";
+  try {
+    if (!sessionStorage.getItem("earth_legend_seen")) { sessionStorage.setItem("earth_legend_seen", "1"); setLegend(true); }
+  } catch (e) {}
   map.flyTo({ center: [D.x[i], D.y[i]], zoom: fitZoom(D.y[i], Math.max(px.scan, px.track)), pitch: 0, bearing: 0,
-              duration: 2500, essential: true });
+              duration: 2500, essential: true, padding: { top: 0, bottom: 0, left: 0, right: drawerPad() } });
   note("Back, Escape or a click elsewhere returns the view.");
   postPick(i);
 }

@@ -7,14 +7,14 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import pydeck as pdk
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit.errors import StreamlitAPIException
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src import earth, geo, ingest, live, serve, uncertain, updater  # noqa: E402
+from src import datainfo, earth, geo, ingest, live, serve, uncertain, updater  # noqa: E402
 from src.context import detail  # noqa: E402
 from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
@@ -24,8 +24,6 @@ from src.label import add_cell  # noqa: E402
 
 st.set_page_config(page_title="Fire Hotspot Classifier", layout="wide")
 
-FIRE_COLOR = [214, 48, 39, 190]
-STATIC_COLOR = [110, 110, 110, 190]
 TAG = "headline"
 MAX_POINTS = 30_000
 MIN_HISTORY_DAYS = 30
@@ -59,86 +57,8 @@ def read_csv(name, **kw):
     return pd.read_csv(p, **kw) if p.exists() else None
 
 
-BASEMAP = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
 ALL_CONT, ALL_COUNTRIES, ALL_PROVINCES, ALL_CITIES = "World", "All countries", "All provinces", "All cities"
 CITY_OPTIONS = 200
-OUTLINE = [30, 30, 30, 255]
-PROVINCE_LINE = [150, 150, 150, 200]
-HIGHLIGHT_FILL = [255, 190, 0, 50]
-HIGHLIGHT_LINE = [210, 120, 0, 255]
-
-
-def map_view(df, city=False, width=1000, height=500, pad=1.3):
-    """View that fits the points with padding, or city level when a city is selected."""
-    lon, lat = df["longitude"].to_numpy(), df["latitude"].to_numpy()
-    w, e, s, n = float(lon.min()), float(lon.max()), float(lat.min()), float(lat.max())
-    mid_lon, mid_lat = (w + e) / 2, (s + n) / 2
-    if city or max(e - w, n - s) < 0.02:
-        return pdk.ViewState(latitude=float(np.median(lat)), longitude=float(np.median(lon)), zoom=9)
-    # Web Mercator with 512 px tiles: a span of `deg` degrees of longitude fits at this zoom
-    span_x = (e - w) * pad
-    span_y = (n - s) * pad / max(np.cos(np.radians(mid_lat)), 0.2)
-    zoom = min(np.log2(360 * width / (512 * span_x)) if span_x else 12,
-               np.log2(360 * height / (512 * span_y)) if span_y else 12)
-    return pdk.ViewState(latitude=mid_lat, longitude=mid_lon, zoom=float(np.clip(zoom, 1, 12)))
-
-
-def draw_map(df, color_col, max_points, key, country=None, province=False, city=False,
-             days_col=None, days_label="Days seen at this spot"):
-    """The map used by the upload tab.
-
-    color_col is 1 for static (grey) and 0 for fire (red). Only the columns the map needs are
-    sent to the browser. `country` is an ISO code: its outline and provinces are drawn, and
-    `province` highlights the province that holds the points.
-    """
-    view_state = map_view(df, city)
-    d = df
-    if len(d) > max_points:
-        st.caption(f"Drawing a random sample of {max_points:,} of {len(d):,} points. "
-                   "Counters use all points.")
-        d = d.sample(max_points, random_state=0)
-    out = pd.DataFrame({
-        "longitude": d["longitude"].round(4), "latitude": d["latitude"].round(4),
-        "radius": (250 + 60 * np.sqrt(d["frp"].clip(lower=0))).round().astype(int),
-        "when": d["timestamp"].dt.strftime("%Y-%m-%d %H:%M"),
-        "p": d["p_static"].round(3), "frp": d["frp"].round(1), "ti4": d["bright_ti4"].round(1)})
-    if days_col:
-        out["days"] = d[days_col].astype(int)
-    if "city" in d:
-        out["city"] = d["city"]
-    static = (d[color_col] == 1).to_numpy()
-
-    layers = []
-    if country:
-        c = geo.country_feature(country)
-        provs = geo.province_features(country)
-        if provs:
-            layers.append(pdk.Layer("GeoJsonLayer", geo.collection(provs), id="provinces", stroked=True,
-                                    filled=False, get_line_color=PROVINCE_LINE, line_width_min_pixels=1))
-        if province:
-            hit = geo.province_at(country, df["longitude"].to_numpy(), df["latitude"].to_numpy())
-            if hit:
-                layers.append(pdk.Layer("GeoJsonLayer", geo.collection([hit]), id="province", stroked=True,
-                                        filled=True, get_fill_color=HIGHLIGHT_FILL,
-                                        get_line_color=HIGHLIGHT_LINE, line_width_min_pixels=3))
-        if c:
-            layers.append(pdk.Layer("GeoJsonLayer", geo.collection([c]), id="country", stroked=True,
-                                    filled=False, get_line_color=OUTLINE, line_width_min_pixels=2))
-    for name, mask, color in (("static", static, STATIC_COLOR), ("fire", ~static, FIRE_COLOR)):
-        if mask.any():
-            layers.append(pdk.Layer("ScatterplotLayer", out[mask], id=name, get_position="[longitude, latitude]",
-                                    get_fill_color=color, get_radius="radius", radius_min_pixels=2,
-                                    radius_max_pixels=14, pickable=True, auto_highlight=True))
-    tip = "<b>p(static)</b> {p}<br/>FRP {frp}<br/>Brightness {ti4}<br/>"
-    if days_col:
-        tip += days_label + ": {days}<br/>"
-    if "city" in out:
-        tip += "Near {city}<br/>"
-    tip += "{when} UTC"
-    deck = pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"html": tip},
-                    map_provider="carto", map_style=BASEMAP)
-    sig = f"{view_state.longitude:.3f}_{view_state.latitude:.3f}_{view_state.zoom:.2f}_{country}_{province}"
-    st.pydeck_chart(deck, key=f"{key}_{sig}", width="stretch")
 
 
 FILTER_DEFAULTS = {"continent": ALL_CONT, "country": ALL_COUNTRIES, "province": ALL_PROVINCES,
@@ -443,8 +363,8 @@ else:
 
 scored = scored.assign(p_static=scored[prob_col], pred_static=(scored[prob_col] >= thr).astype(int))
 
-tab_earth, tab_spot, tab_live, tab_metrics, tab_results = st.tabs(
-    ["Earth", "Why a spot is static", "Classify a new file", "Model metrics", "Results"])
+tab_earth, tab_data, tab_spot, tab_live, tab_metrics, tab_results = st.tabs(
+    ["Earth", "Data and features", "Why a spot is static", "Classify a new file", "Model metrics", "Results"])
 
 with tab_spot:
     st.write("Pick a location that was flagged repeatedly and see it appear day after day.")
@@ -458,7 +378,8 @@ with tab_spot:
         per_day = sub.groupby(sub["acq_date"].dt.date).size()
         st.bar_chart(per_day)
 
-with tab_live:
+def classify_tab():
+    """Upload a FIRMS CSV and see it on the same globe as the Earth tab (sidebar tier, warnings, counters)."""
     st.caption("This tab uses the sidebar tier, Instant by default: an uploaded file has no past detections of "
                f"its own places, which the history tier needs. With history works only for a file that covers "
                f"{MIN_HISTORY_DAYS} days or more, and a shorter file gets a warning.")
@@ -475,10 +396,16 @@ with tab_live:
             if tier == HISTORY and span < MIN_HISTORY_DAYS:
                 st.warning(f"This file spans {span} days, fewer than {MIN_HISTORY_DAYS}. History "
                            "features will be weak and results unreliable.")
-            draw_map(new, "pred_static", MAX_POINTS, "upload", days_col="cell_days")
             st.write(f"{len(new):,} detections, {int(new['pred_static'].sum()):,} predicted static.")
+            new = live.add_geo(new)
+            bands = uncertain.bands_of(bundle, "best_model_headline_band.json" if tier == INSTANT
+                                       else "best_model_history_band.json")
+            render_globe("upload", new, bands, kind="upload", region=None, demo=False, prefix="earth_u", suffix="u",
+                         truth=False, tier_name=tier, cap=MAX_POINTS, in_fragment=False,
+                         sig_extra=f"{getattr(up, 'name', '')}|{getattr(up, 'size', '')}")
         except Exception as e:  # show a readable message in the demo
-            st.error(f"Could not process this file: {e}")
+            st.error(f"Could not process this file: {type(e).__name__}")
+
 
 def world_section():
     """All regions: the files, the five grouped splits, the temporal split and every region held out."""
@@ -680,27 +607,58 @@ ARCHIVE_BANNER = earth.ARCHIVE_BANNER
 
 
 # ---------------------------------------------------------------- detail panel of a clicked detection
-# The globe page posts the clicked detection (or null) to the app page. This small component, which draws
-# nothing, passes it to Python. It only accepts messages from frames of this page.
+# The detail drawer is a Streamlit container laid over the right side of the globe by this css (the globe page
+# is never narrowed or reloaded). It has a small arrow button on the middle of its left edge.
+LAYOUT_CSS = (
+    '[class*="st-key-earth_stage_"] { position: relative; gap: 0 !important; }'
+    '[class*="st-key-earth_drawer_"] { position: absolute; top: 8px; right: 8px; width: min(400px, 92%); '
+    'height: 684px; overflow-y: auto; box-sizing: border-box; background: #ffffff; padding: 12px 14px; '
+    'border: 1px solid rgba(49,51,63,.25); border-radius: 6px; box-shadow: -4px 0 14px rgba(0,0,0,.3); z-index: 30; }'
+    '[class*="st-key-earth_close_"] { position: absolute; top: 324px; right: calc(min(400px, 92%) - 6px); '
+    'width: 26px; z-index: 31; }'
+    '[class*="st-key-earth_close_"] button { width: 26px; min-width: 26px; height: 52px; min-height: 52px; '
+    'padding: 0; border-radius: 13px 0 0 13px; font-size: 22px; line-height: 1; }')
+
+# The globe page posts the clicked detection (or null) to the app page, named by its channel (l, a or u). This
+# small component, which draws nothing, passes it to Python, carries a close request back to the globe page, and
+# adds the css above. It only accepts messages from frames of this page.
 PICK_JS = """
 export default function(component) {
-  const { setTriggerValue } = component;
+  const { setTriggerValue, data } = component;
+  const ch = data && data.ch;
+  if (!document.getElementById("earth-layout-css")) {
+    const st = document.createElement("style");
+    st.id = "earth-layout-css";
+    st.textContent = __CSS__;
+    document.head.appendChild(st);
+  }
+  window.__earthPick = window.__earthPick || {};
+  window.__earthClose = window.__earthClose || {};
+  const frames = () => Array.from(document.querySelectorAll("iframe"));
   const onMsg = (ev) => {
     const m = ev.data;
-    if (!m || m.type !== "earth-pick") return;
-    const ours = Array.from(document.querySelectorAll("iframe")).some(f => f.contentWindow === ev.source);
-    if (!ours) return;
+    if (!m || m.type !== "earth-pick" || m.ch !== ch) return;
+    if (!frames().some(f => f.contentWindow === ev.source)) return;
     setTriggerValue("pick", JSON.stringify({ sig: m.sig, pick: m.pick }));
   };
-  if (window.__earthPick) window.removeEventListener("message", window.__earthPick);
-  window.__earthPick = onMsg;
+  if (window.__earthPick[ch]) window.removeEventListener("message", window.__earthPick[ch]);
+  window.__earthPick[ch] = onMsg;
   window.addEventListener("message", onMsg);
+  if (data && data.close !== undefined && window.__earthClose[ch] !== data.close) {
+    const first = window.__earthClose[ch] === undefined;
+    window.__earthClose[ch] = data.close;
+    if (!first) frames().forEach(f => { try { f.contentWindow.postMessage({ type: "earth-close", ch: ch }, "*"); } catch (e) {} });
+  }
+  if (window.__earthEsc) document.removeEventListener("keydown", window.__earthEsc);
+  window.__earthEsc = (e) => {
+    if (e.key === "Escape") frames().forEach(f => { try { f.contentWindow.postMessage({ type: "earth-close" }, "*"); } catch (err) {} });
+  };
+  document.addEventListener("keydown", window.__earthEsc);
   return () => {
-    window.removeEventListener("message", onMsg);
-    if (window.__earthPick === onMsg) window.__earthPick = null;
+    if (window.__earthPick[ch] === onMsg) { window.removeEventListener("message", onMsg); delete window.__earthPick[ch]; }
   };
 }
-"""
+""".replace("__CSS__", json.dumps(LAYOUT_CSS))
 
 
 @st.cache_resource
@@ -726,7 +684,8 @@ def read_pick(suffix, view):
     comp = pick_component()
     if comp is not None:
         try:
-            res = comp(key=f"earth_pick_{suffix}", on_pick_change=lambda: None)
+            res = comp(key=f"earth_pick_{suffix}", on_pick_change=lambda: None,
+                       data={"ch": suffix, "close": st.session_state.get(f"earth_close_n_{suffix}", 0)})
             raw = getattr(res, "pick", None)
         except Exception:
             raw = None
@@ -756,15 +715,16 @@ def find_pick(g, pick):
     return sub.iloc[0].to_dict() if len(sub) else None
 
 
-def panel_payload(row, base, is_live, band):
+def panel_payload(row, base, kind, band, tier_name):
+    """The detail of one clicked detection. kind is live (read from the store), archive or upload (read from the
+    frame the globe shows: for an upload that is only what the file contains)."""
     m = panel_models()
-    tier_name = st.session_state.get("earth_model", HISTORY)
     key = "history" if tier_name == HISTORY else "instant"
     bundle = m.hist if key == "history" else m.inst
     bands = m.bands[key]
     use_band = band or bands.get("default")
     t = pd.Timestamp(row["timestamp"])
-    if is_live:
+    if kind == "live":
         full = detail.store_row(row.get("sensor"), row["latitude"], row["longitude"], row["acq_date"],
                                 detail.acq_time_of(row))
         if full:
@@ -773,10 +733,11 @@ def panel_payload(row, base, is_live, band):
             row = full
         spread = detail.spread_from_store(float(row["latitude"]), float(row["longitude"]), t, row.get("cell_id"))
     else:
+        label = "archive file (January to June 2025)" if kind == "archive" else "the uploaded file only"
         spread = detail.spread_from_frame(base, float(row["latitude"]), float(row["longitude"]), t,
                                           cell_days=detail.cell_days_from_frame(base, row.get("cell_id"), t),
-                                          source="archive file (January to June 2025)")
-    return detail.build(row, source="live" if is_live else "archive", tier=key, bundle=bundle, bands=bands,
+                                          source=label)
+    return detail.build(row, source=kind, tier=key, bundle=bundle, bands=bands,
                         band=use_band, threshold=None, spread=spread)
 
 
@@ -880,31 +841,23 @@ def render_panel(p):
     st.caption("Data: " + ", ".join(p.get("attribution", [])) + ".")
 
 
-def detail_panel(pick, g, base, is_live, bands, band, suffix):
-    """Side panel of the selected detection, or a short hint when nothing is selected."""
-    with st.container(border=True, height=700):
-        if pick_component() is None:
-            st.caption("The detail panel needs a Streamlit version with two way components.")
+def detail_panel(pick, g, base, kind, bands, band, suffix, tier_name):
+    """The content of the drawer: the selected detection."""
+    row = find_pick(g, pick)
+    if row is None:
+        st.caption("The selected detection is not in this view any more.")
+        return
+    cache_key = f"earth_detail_{suffix}"
+    ident = json.dumps([pick, tier_name, kind, str(band and band.get("target"))], sort_keys=True, default=str)
+    got = st.session_state.get(cache_key)
+    if not got or got[0] != ident:
+        try:
+            payload = panel_payload(row, base, kind, band, tier_name)
+        except Exception as e:
+            st.error(f"The details could not be made: {type(e).__name__}")
             return
-        if not pick:
-            st.caption("Click a detection on the globe to see its details here.")
-            return
-        row = find_pick(g, pick)
-        if row is None:
-            st.caption("The selected detection is not in this view any more.")
-            return
-        cache_key = f"earth_detail_{suffix}"
-        ident = json.dumps([pick, st.session_state.get("earth_model"), str(band and band.get("target"))],
-                           sort_keys=True, default=str)
-        got = st.session_state.get(cache_key)
-        if not got or got[0] != ident:
-            try:
-                payload = panel_payload(row, base, is_live, band)
-            except Exception as e:
-                st.error(f"The details could not be made: {type(e).__name__}")
-                return
-            st.session_state[cache_key] = got = (ident, payload)
-        render_panel(got[1])
+        st.session_state[cache_key] = got = (ident, payload)
+    render_panel(got[1])
 
 
 def update_status_body():
@@ -912,8 +865,9 @@ def update_status_body():
     stt = updater.status()
     was = st.session_state.get("update_was_running", False)
     if stt["state"] == "running":
-        st.info("Update running" + (f" since {stt['started']} UTC" if stt.get("started") else "") +
-                ". The globe stays usable. The numbers below come from its log.")
+        st.info("An ingest is running" + (f" (started here at {stt['started']} UTC)" if stt.get("started") else
+                                          " (started elsewhere, for example by the loop)") +
+                ". The globe stays usable. The lines below come from the log of an update started here.")
     elif stt["state"] == "finished":
         st.success(f"Update finished: {stt['message']}." + (f" Ended {stt['finished']} UTC." if stt.get("finished") else ""))
     elif stt["state"] == "failed":
@@ -1035,8 +989,31 @@ def earth_body(src):
         base, bands = got
         prefix, suffix = "earth_a", "a"
 
+    render_globe(src, base, bands, kind="live" if is_live else "archive", region=region, demo=demo,
+                 prefix=prefix, suffix=suffix, truth=not is_live, tier_name=live_tier, cap=earth.MAX_POINTS,
+                 in_fragment=is_live and hasattr(st, "fragment"))
+
+
+def close_drawer(suffix, in_fragment):
+    """The arrow button: drop the selection and tell the globe page to return to its earlier view."""
+    st.session_state[f"earth_sel_{suffix}"] = None
+    st.session_state[f"earth_close_n_{suffix}"] = st.session_state.get(f"earth_close_n_{suffix}", 0) + 1
+    try:
+        st.rerun(scope="fragment" if in_fragment else "app")
+    except StreamlitAPIException:                   # this run is not a fragment run: rerun the whole page
+        st.rerun()
+
+
+def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth, tier_name, cap, in_fragment,
+                 sig_extra=""):
+    """Show, selector, band, geography filters, the globe with its detail drawer, and the counters, for any frame
+    with p_static and pred_static: the live store, the archive or an uploaded file.
+
+    The globe uses the full width. The detail drawer exists only while a detection is selected and lies over the
+    right side; its arrow button, Escape and a click on empty globe close it."""
+    is_live = kind == "live"
     c_show, c_focus = st.columns([3, 2])
-    show = c_show.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, index=1, horizontal=True,
+    show = c_show.radio("Show", earth.SHOW if truth else earth.SHOW[:2], index=1, horizontal=True,
                         key=f"earth_show_{suffix}")
     focus_on = show in earth.FOCUS_VIEWS
     focus = c_focus.radio("Detections", earth.FOCUS, index=0, horizontal=True, key=f"earth_focus_{suffix}",
@@ -1050,9 +1027,11 @@ def earth_body(src):
                "above sets the label used in Errors only and in the popups.")
     if is_live:
         st.caption("Ground truth and Errors only are disabled for live data: there is no ground truth on live data.")
-    else:
+    elif truth:
         st.caption("Ground truth is NASA's own repeat based static flag from the label, not independent truth. "
                    "Errors only shows where the prediction disagrees with it.")
+    else:
+        st.caption("Ground truth and Errors only are disabled for an uploaded file: it has no label.")
 
     band = None
     if show == "Model prediction" and bands and bands.get("default"):
@@ -1085,7 +1064,7 @@ def earth_body(src):
         g = g.assign(p_cal=uncertain.apply_calibrator(bands["calibrator"], g["p_static"].to_numpy()))
     drawn, kinds = earth.select(g, show, band)
     drawn, kinds = earth.apply_focus(drawn, kinds, codes)          # before the point cap, so counts are complete
-    data, note = earth.payload(drawn, kinds, band)
+    data, note = earth.payload(drawn, kinds, band, cap=cap)
     if drawn.empty:
         st.info("No errors in this selection." if show == "Errors only"
                 else "No detections match this selection.")
@@ -1095,19 +1074,26 @@ def earth_body(src):
         st.caption(note + picked + " Needs internet for the imagery. To see every detection around one place, pick a "
                    "province or a nearest city.")
         st.caption("Click a detection to fly to it and see its satellite pixel footprint (an approximate rectangle "
-                   "of scan by track, centred on the reported point). Escape or a click elsewhere returns the view. "
-                   "The archive has no scan and track, so archive footprints use the nominal 375 m pixel.")
-        sig = "|".join([src, str(region)] + [str(st.session_state.get(f"{prefix}_{n}"))
-                                             for n in ("continent", "country", "province", "city")])
+                   "of scan by track, centred on the reported point) and its details in a drawer on the right. "
+                   "The arrow on the drawer, Escape or a click on empty globe closes it.")
+        sig = "|".join([src, str(region), sig_extra] + [str(st.session_state.get(f"{prefix}_{n}"))
+                                                         for n in ("continent", "country", "province", "city")])
         page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
-                          show, sig, demo, three_way=bool(band), codes=codes, kinds=kinds, live_source=is_live)
+                          show, sig, demo, three_way=bool(band), codes=codes, kinds=kinds, live_source=is_live,
+                          channel=suffix)
         view = "|".join([sig, show, focus, str(with_uncertain), str(band and band.get("target"))])
+        st.session_state[f"earth_view_{suffix}"] = view            # the key of the selection, read by the tests
         sel = read_pick(suffix, view)
-        c_map, c_panel = st.columns([7, 3])
-        with c_map:
+        with st.container(key=f"earth_stage_{suffix}"):
             components.html(page, height=700)
-        with c_panel:
-            detail_panel(sel, g, base, is_live, bands, band, suffix)
+            if sel:
+                with st.container(key=f"earth_drawer_{suffix}"):
+                    detail_panel(sel, g, base, kind, bands, band, suffix, tier_name)
+                with st.container(key=f"earth_close_{suffix}"):
+                    if st.button("\u203a", key=f"earth_closebtn_{suffix}", help="Close the panel"):
+                        close_drawer(suffix, in_fragment)
+        if pick_component() is None:
+            st.caption("The detail drawer needs a Streamlit version with two way components.")
 
     m = st.columns(5 if band else 4)
     if band:
@@ -1116,7 +1102,7 @@ def earth_body(src):
     m[1].metric("Predicted static", f"{int(g['pred_static'].sum()):,}")
     m[2].metric("Predicted fire", f"{int((1 - g['pred_static']).sum()):,}")
     m[3].metric("Circles drawn", f"{len(data['x']):,}")
-    if not is_live:
+    if truth:
         fs, ff = earth.error_counts(g)
         n = st.columns(4)
         n[0].metric("NASA static", f"{int(g['is_static'].sum()):,}")
@@ -1125,5 +1111,70 @@ def earth_body(src):
         n[3].metric("All errors", f"{fs + ff:,}")
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def data_store_info(stamp):
+    return datainfo.live_store()
+
+
+def data_tab():
+    """Data sources, labels, regions, features, splits and checks, and the live store, all read at run time."""
+    path = ingest.store_path()
+    store = data_store_info(path.stat().st_mtime_ns) if path.exists() else None
+    st.subheader("Data sources")
+    st.dataframe(datainfo.sources(store), hide_index=True, width="stretch")
+    st.caption(f"Suomi NPP stopped delivering new data on {datainfo.SNPP_END}, so the live view uses NOAA-20 and "
+               "NOAA-21. The live feed has no type field, so live detections have no label.")
+
+    st.subheader("Labels")
+    st.dataframe(datainfo.labels(), hide_index=True, width="stretch")
+    st.caption("The label comes from NASA's type field: static is the positive class. It is NASA's own repeat "
+               "based flag, not independent ground truth.")
+
+    st.subheader("Regions")
+    reg = datainfo.regions()
+    if reg is not None:
+        st.dataframe(reg.style.format({"Detections": "{:,}", "Static share": "{:.4f}"}), hide_index=True, width="stretch")
+        h = datainfo.headline()
+        if h is not None:
+            st.caption(f"Detections kept per file. The training set has {h['rows']:,} detections after the "
+                       f"duplicate check, {h['static_share']:.1%} static, from {h['date_min']} to {h['date_max']}.")
+
+    st.subheader("Features")
+    inst, hist = datainfo.feature_table("instant"), datainfo.feature_table("history")
+    if inst is not None:
+        st.write(f"Instant tier, {len(inst)} features. They come from one detection only.")
+        st.dataframe(inst, hide_index=True, width="stretch")
+    if hist is not None:
+        st.write(f"With history tier, {len(hist)} features: the instant ones and the history of the same place.")
+        st.dataframe(hist, hide_index=True, width="stretch")
+    st.caption("Coordinates and the UTC hour are not features. The meanings are the labels of the detail drawer.")
+
+    st.subheader("Split and checks")
+    for line in datainfo.check_notes():
+        st.write(line)
+    checks = datainfo.check_rows()
+    if checks is not None:
+        st.write("Static class PR-AUC, from the saved reports.")
+        st.dataframe(checks, width="stretch")
+
+    st.subheader("Live store")
+    if store is None:
+        st.write("There is no live store on this machine.")
+    else:
+        newest = f"{store['newest']:%Y-%m-%d %H:%M} UTC" if store.get("newest") is not None else "unknown"
+        st.dataframe(pd.DataFrame([
+            {"Item": "Rows", "Value": f"{store['rows']:,}"},
+            {"Item": "Regions", "Value": f"{len(store['regions'])}"},
+            {"Item": "Regions not in the training data", "Value": f"{len(store['untrained'])}"},
+            {"Item": "Sensors", "Value": ", ".join(store["sensors"])},
+            {"Item": "Newest detection", "Value": newest}]), hide_index=True, width="stretch")
+
+
 with tab_earth:
     earth_tab()
+
+with tab_data:
+    data_tab()
+
+with tab_live:
+    classify_tab()
