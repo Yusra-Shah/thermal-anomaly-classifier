@@ -198,6 +198,33 @@ def store_info(path=None):
     return meta.num_rows, (pd.Timestamp(last) if last is not None else None)
 
 
+def latest_detection(path=None, region=None):
+    """Time of the newest detection in the store (or in one region), or None. Without a region it comes from the
+    file metadata, so it costs nothing; with a region it reads one column of the last days of that region."""
+    path = path or store_path()
+    if not path.exists():
+        return None
+    import pyarrow.parquet as pq
+    meta = pq.ParquetFile(path).metadata
+    names = meta.schema.to_arrow_schema().names
+    idx = names.index("timestamp")
+    newest = None
+    for i in range(meta.num_row_groups):
+        st = meta.row_group(i).column(idx).statistics
+        if st is not None and st.has_min_max and (newest is None or st.max > newest):
+            newest = st.max
+    if newest is None:
+        return None
+    newest = pd.Timestamp(newest)
+    if region is None:
+        return newest
+    for days in (3, 30, 120):
+        got = read_recent(path, since=newest - pd.Timedelta(days=days), columns=["timestamp"], region=region)
+        if got is not None and len(got):
+            return pd.Timestamp(got["timestamp"].max())
+    return None
+
+
 def read_recent(path=None, since=None, columns=None, sensor=None, region=None, regions=None, where=None):
     """Rows of the store since a time, optionally of one sensor and one or more regions. The row groups are
     time ordered, so old data is skipped. where adds (column, operator, value) filters, for example a

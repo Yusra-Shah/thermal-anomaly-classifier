@@ -1,0 +1,110 @@
+[1mdiff --git a/src/ingest.py b/src/ingest.py[m
+[1mindex 87485f9..e1f1d62 100644[m
+[1m--- a/src/ingest.py[m
+[1m+++ b/src/ingest.py[m
+[36m@@ -36,6 +36,7 @@[m [mimport re[m
+ import time[m
+ from collections import deque[m
+ from datetime import datetime, timedelta, timezone[m
+[32m+[m[32mfrom pathlib import Path[m
+ [m
+ import numpy as np[m
+ import pandas as pd[m
+[36m@@ -61,7 +62,16 @@[m [mSCORE_COLS = ["p_instant", "pc_instant", "label_instant", "instant_default", "in[m
+               "p_history", "pc_history", "label_history", "history_default", "history_strict"][m
+ [m
+ [m
+[32m+[m[32mSTORE_ENV = "FIRE_STORE_PATH"[m
+[32m+[m
+[32m+[m
+ def store_path():[m
+[32m+[m[32m    """The one place the store path comes from: FIRE_STORE_PATH when it is set (for example[m
+[32m+[m[32m    data/dev/store.parquet for the development store, relative to the project root), else the live store."""[m
+[32m+[m[32m    custom = os.environ.get(STORE_ENV, "").strip()[m
+[32m+[m[32m    if custom:[m
+[32m+[m[32m        p = Path(custom)[m
+[32m+[m[32m        return p if p.is_absolute() else live.ROOT / p[m
+     return live.LIVE_DIR / "store.parquet"[m
+ [m
+ [m
+[36m@@ -188,13 +198,14 @@[m [mdef store_info(path=None):[m
+     return meta.num_rows, (pd.Timestamp(last) if last is not None else None)[m
+ [m
+ [m
+[31m-def read_recent(path=None, since=None, columns=None, sensor=None, region=None, regions=None):[m
+[32m+[m[32mdef read_recent(path=None, since=None, columns=None, sensor=None, region=None, regions=None, where=None):[m
+     """Rows of the store since a time, optionally of one sensor and one or more regions. The row groups are[m
+[31m-    time ordered, so old data is skipped. Returns None when there is no store."""[m
+[32m+[m[32m    time ordered, so old data is skipped. where adds (column, operator, value) filters, for example a[m
+[32m+[m[32m    latitude and longitude box, applied while reading. Returns None when there is no store."""[m
+     path = path or store_path()[m
+     if not path.exists():[m
+         return None[m
+[31m-    filt = [][m
+[32m+[m[32m    filt = list(where or [])[m
+     if since is not None:[m
+         filt.append(("timestamp", ">=", pd.Timestamp(since)))[m
+     if sensor:[m
+[36m@@ -203,7 +214,61 @@[m [mdef read_recent(path=None, since=None, columns=None, sensor=None, region=None, r[m
+         filt.append(("region", "==", region))[m
+     if regions:[m
+         filt.append(("region", "in", list(regions)))[m
+[31m-    return pd.read_parquet(path, columns=columns, filters=filt or None)[m
+[32m+[m[32m    if not filt:[m
+[32m+[m[32m        return pd.read_parquet(path, columns=columns)[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        return pd.read_parquet(path, columns=columns, filters=filt)[m
+[32m+[m[32m    except (ImportError, ValueError) as e:[m
+[32m+[m[32m        if "dataset" not in str(e):[m
+[32m+[m[32m            raise[m
+[32m+[m[32m    return read_row_groups(path, columns, filt)       # the filtered reader of pyarrow is not available here[m
+[32m+[m
+[32m+[m
+[32m+[m[32m_OPS = {">=": lambda s, v: s >= v, "<=": lambda s, v: s <= v, ">": lambda s, v: s > v, "<": lambda s, v: s < v,[m
+[32m+[m[32m        "==": lambda s, v: s == v, "!=": lambda s, v: s != v, "in": lambda s, v: s.isin(list(v))}[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef _group_may_match(rg, names, filt):[m
+[32m+[m[32m    """False when the min and max of a row group show that no row can pass a filter."""[m
+[32m+[m[32m    for col, op, val in filt:[m
+[32m+[m[32m        if col not in names or op not in (">=", "<=", ">", "<", "=="):[m
+[32m+[m[32m            continue[m
+[32m+[m[32m        st = rg.column(names.index(col)).statistics[m
+[32m+[m[32m        if st is None or not st.has_min_max:[m
+[32m+[m[32m            continue[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            lo, hi = st.min, st.max[m
+[32m+[m[32m            if isinstance(val, pd.Timestamp):[m
+[32m+[m[32m                lo, hi = pd.Timestamp(lo), pd.Timestamp(hi)[m
+[32m+[m[32m            if (op in (">=", ">") and hi < val) or (op in ("<=", "<") and lo > val) or \[m
+[32m+[m[32m               (op == "==" and (val < lo or val > hi)):[m
+[32m+[m[32m                return False[m
+[32m+[m[32m        except TypeError:[m
+[32m+[m[32m            continue[m
+[32m+[m[32m    return True[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef read_row_groups(path, columns, filt):[m
+[32m+[m[32m    """Filtered read without the pyarrow dataset module: one row group at a time, row groups that cannot match[m
+[32m+[m[32m    are skipped by their statistics, so memory stays bounded by one row group and the matching rows."""[m
+[32m+[m[32m    import pyarrow.parquet as pq[m
+[32m+[m[32m    pf = pq.ParquetFile(path)[m
+[32m+[m[32m    names = pf.schema_arrow.names[m
+[32m+[m[32m    keep = list(columns) if columns else names[m
+[32m+[m[32m    need = list(dict.fromkeys(keep + [c for c, _, _ in filt]))[m
+[32m+[m[32m    parts = [][m
+[32m+[m[32m    for i in range(pf.metadata.num_row_groups):[m
+[32m+[m[32m        if not _group_may_match(pf.metadata.row_group(i), pf.metadata.schema.to_arrow_schema().names, filt):[m
+[32m+[m[32m            continue[m
+[32m+[m[32m        df = pf.read_row_group(i, columns=need).to_pandas()[m
+[32m+[m[32m        mask = np.ones(len(df), dtype=bool)[m
+[32m+[m[32m        for col, op, val in filt:[m
+[32m+[m[32m            mask &= _OPS[op](df[col], val).to_numpy(dtype=bool)[m
+[32m+[m[32m        if mask.any():[m
+[32m+[m[32m            parts.append(df.loc[mask, keep])[m
+[32m+[m[32m    if not parts:[m
+[32m+[m[32m        return pf.schema_arrow.empty_table().select(keep).to_pandas()[m
+[32m+[m[32m    return pd.concat(parts, ignore_index=True)[m
+ [m
+ [m
+ def standardize(raw, sensor, region):[m

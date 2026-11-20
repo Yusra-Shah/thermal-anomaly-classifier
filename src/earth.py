@@ -16,6 +16,8 @@ LIVE_NOTE = ("Predicted fire means any vegetation fire, including routine farm a
              "It does not mean a reported wildfire event.")
 SHOW_HELP = ("Raw detection: a hot pixel reported by the satellite, not classified. Model prediction: our "
              "classification of each detection as fire, static or uncertain.")
+ARCHIVE_BANNER = ("These detections include the training data. Use Only held out test detections for "
+                  "evaluation.")
 SAT_NOTES = {"S-NPP": "S-NPP (no new data since 2 Nov 2026)", "NOAA-20": "NOAA-20 (active)",
              "NOAA-21": "NOAA-21 (active)"}
 
@@ -642,7 +644,7 @@ function popupHtml(i) {
   return "<div class='pop'><b>Decision: " + (D.dec[i] === 1 ? "static heat source" : D.dec[i] === 0 ? "predicted fire" : "uncertain, needs investigation") + "</b><br>" +
     "Model score for static (not calibrated): " + D.p[i] + "<br>" + nasa + "Brightness (I-4): " + D.t[i] + " K<br>FRP: " + D.f[i] + " MW<br>" +
     "Pixel: " + Math.round(px.scan * 1000) + " m by " + Math.round(px.track * 1000) + " m" + (px.nominal ? " (nominal)" : "") + "<br>" +
-    "Date: " + D.dn[D.d[i]] + (D.tm[i] ? " " + D.tm[i] + " UTC" : "") + "<br>Country: " + D.gn[D.g[i]] + "<br>Province: " + D.an[D.a[i]] +
+    "Date: " + D.dn[D.d[i]] + (D.tm[i] ? " " + D.tm[i] + " UTC" : "") + "<br>Nearest place: " + D.gn[D.g[i]] + "<br>Province: " + D.an[D.a[i]] +
     (D.u[i] ? "<br><b style='color:#a05a00'>" + CFG.untrained.charAt(0).toUpperCase() + CFG.untrained.slice(1) + "</b>" : "") + "</div>";
 }
 map.on("click", (e) => {

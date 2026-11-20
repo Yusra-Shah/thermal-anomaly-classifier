@@ -297,8 +297,18 @@ def run_app(tmp, key, setup=None):
     return at
 
 
+ARCHIVE_SRC = "Historical archive (Jan to Jun 2025, includes the data the models were trained on)"
+
+
 def to_live(a):
-    a.radio(key="earth_source").set_value(LIVE_SRC).run()
+    a.radio(key="earth_source").set_value(LIVE_SRC).run()          # the front page already shows it
+
+
+def to_archive(a, full_range=False):
+    a.radio(key="earth_source").set_value(ARCHIVE_SRC).run()
+    if full_range:                                                   # the default is the last seven days
+        import datetime
+        a.slider(key="earth_dates").set_range(datetime.date(2025, 1, 1), datetime.date(2025, 6, 30)).run()
 
 
 def metric(a, label):
@@ -442,7 +452,7 @@ def test_app_live(tmp):
     # Instant model and a country filter
     def instant(a):
         to_live(a)
-        a.radio(key="earth_live_tier").set_value(INSTANT_TIER).run()
+        a.radio(key="earth_model").set_value(INSTANT_TIER).run()
         sb = a.selectbox(key="earth_l_country")
         sb.set_value(sb.options[1]).run()
     at = None                     # free the previous app run first (memory)
@@ -504,7 +514,7 @@ def test_app_store(tmp):
     win = store[store["timestamp"] >= now - pd.Timedelta(hours=24)]
     n20, n21 = (int((win["sensor"] == s).sum()) for s in ("NOAA-20", "NOAA-21"))
     fresh = [c for c in caps if c.startswith("Newest detection")]
-    assert fresh and "UTC" in fresh[0] and "minutes ago" in fresh[0] and "Rows per sensor" in fresh[0], caps
+    assert fresh and "UTC" in fresh[0] and " ago. Rows per sensor" in fresh[0], caps
     assert f"NOAA-20 {n20:,}" in fresh[0] and f"NOAA-21 {n21:,}" in fresh[0], (fresh, n20, n21)
     assert [r.label for r in at.radio if r.key == "earth_hours"] == ["Time window"]
     assert [o for o in at.radio(key="earth_hours").options] == ["last 6 hours", "last 24 hours", "last 72 hours"]
@@ -515,7 +525,7 @@ def test_app_store(tmp):
     assert metric(at, "Detections in Earth") > 0 and metric(at, "Circles drawn") > 0
     assert any("not in the training data" in c for c in caps)                      # untrained rows are marked
     for tier in (INSTANT_TIER, HISTORY_TIER):
-        at.radio(key="earth_live_tier").set_value(tier).run()
+        at.radio(key="earth_model").set_value(tier).run()
         assert not at.exception, at.exception
         assert metric(at, "Detections in Earth") > 0
     seen = {}
@@ -529,7 +539,8 @@ def test_app_store(tmp):
     assert not at.exception, at.exception
     assert any("Region not in the training data, results unvalidated" in w.value for w in at.warning),         [w.value for w in at.warning]
     at.selectbox(key="earth_region").set_value("Brazil").run()
-    assert not at.exception and any("no detections for this selection" in i.value for i in at.info)
+    assert not at.exception and any("No detections in this selection" in i.value and "python -m src.ingest --once" in i.value
+                                    for i in at.info)
     assert not any("not in the training data" in w.value for w in at.warning)
     # without the store the earlier behaviour returns
     (Path(tmp) / "store.parquet").unlink()
@@ -600,7 +611,7 @@ def points_drawn(at):
 
 
 def test_app_geo(tmp):
-    """Four filters on the Map tab and on the Earth tab (archive and live), defaults and resets."""
+    """Four filters on the Earth tab (archive and live), defaults and resets."""
     import time
 
     regions = build_demo(tmp)
@@ -651,16 +662,14 @@ def test_app_geo(tmp):
         print(region, "Earth circles drawn:", metric(at, "Circles drawn"), f"({time.time() - t:.0f} s)")
         check_filters(at, "earth_l", "Detections in Earth", region)
 
-    # Map tab filters (archive data, once) and the Earth tab archive filters, both tiers
+    # the Earth tab archive filters, both tiers, over the full date range
     at = None                     # free the previous app run first (memory)
     gc.collect()
-    at = run_app(tmp, None)
-    check_filters(at, "map", "Detections shown", "archive")
-    print("Map tab pydeck points drawn:", points_drawn(at))
+    at = run_app(tmp, None, lambda a: to_archive(a, full_range=True))
     for tier in (INSTANT_TIER, HISTORY_TIER):
-        at.sidebar.radio[0].set_value(tier).run()
+        at.radio(key="earth_model").set_value(tier).run()
         assert not at.exception, (tier, at.exception)
-        assert metric(at, "Detections shown") > 0
+        assert metric(at, "Detections in Earth") > 0
         check_filters(at, "earth_a", "Detections in Earth", f"archive {tier}")
     print("geo filter tests passed")
 
@@ -675,10 +684,10 @@ def test_app_earth(tmp):
 
     at = None                     # free the previous app run first (memory)
     gc.collect()
-    at = run_app(tmp, None)
+    at = run_app(tmp, None, lambda a: to_archive(a, full_range=True))
     assert not at.exception, at.exception
     for tier in (INSTANT_TIER, HISTORY_TIER):
-        at.sidebar.radio[0].set_value(tier).run()
+        at.radio(key="earth_model").set_value(tier).run()
         assert not at.exception, (tier, at.exception)
         note = any("mostly separates night detections" in c.value and "prefer the history tier" in c.value
                    for c in at.caption)
@@ -711,7 +720,7 @@ def test_app_earth(tmp):
             assert not at.exception, (show, at.exception)
             has_band = any(r.key == "earth_band_a" for r in at.radio)
             assert has_band == (show == "Model prediction"), (show, has_band)   # Band only with predictions
-            assert any("sidebar threshold only affects the Map tab" in c.value for c in at.caption)
+            assert any("operating point above sets the label used in Errors only" in c.value for c in at.caption)
             got[show] = metric(at, "Circles drawn")
             html = page_html(at)
             assert f"maplibre-gl@{earth.MAPLIBRE}" in html and "terrarium" in html and "World_Imagery" in html
@@ -794,8 +803,124 @@ def suite_unit(tmp):
     test_earth_footprint()
 
 
+def test_app_front(tmp):
+    """The front page: tab order, live defaults, archive naming and banner, one week default, freshness banners,
+    the Update live data button and the Classify tab note."""
+    import datetime
+    import sys
+    import time
+
+    from src import earth, ingest, updater
+    from tests import fake_feed
+    live.LIVE_DIR = Path(tmp)
+    today = fake_feed.today()
+
+    def store(end, n=10):
+        for p in Path(tmp).glob("store.parquet*"):
+            p.unlink()
+        ingest.run_once("fake", fetch=fake_feed.fetch_factory(fake_feed.masters(n, end=end)), today=end,
+                        sleep=lambda s: None, log=lambda *a: None, limiter=fake_feed.fast_limiter())
+
+    store(today)
+    at = None
+    gc.collect()
+    at = run_app(tmp, "fake")
+    assert not at.exception, at.exception
+    assert [t.label for t in at.tabs] == ["Earth", "Why a spot is static", "Classify a new file", "Model metrics",
+                                          "Results"]                        # Map is gone, Earth is first
+    assert at.radio(key="earth_source").value == LIVE_SRC                   # live is the default source
+    assert at.radio(key="earth_source").options == [LIVE_SRC, ARCHIVE_SRC]
+    assert at.radio(key="earth_model").value == HISTORY_TIER                # Earth's own tier, history by default
+    assert at.sidebar.radio[0].value == INSTANT_TIER                        # the sidebar and Classify stay on Instant
+    assert at.radio(key="earth_focus_l").value == "Fires"
+    assert not at.checkbox(key="earth_unc_l").value                         # Include uncertain is off
+    assert "Detections of the last 24 hours, classified by the model" in [h.value for h in at.subheader]
+    assert any(b.key == "update_live" and b.label == "Update live data" for b in at.button)
+    caps = [c.value for c in at.caption]
+    assert any("Instant by default" in c and "no past detections" in c and "30 days or more" in c for c in caps), caps
+    at.radio(key="earth_hours").set_value(72).run()
+    assert "Detections of the last 72 hours, classified by the model" in [h.value for h in at.subheader]
+    legend = page_html(at)
+    assert "Predicted fire" in legend and "actual fire" not in legend.lower()
+
+    # archive: the long name, the banner, a one week default, the held out box, the four Show options
+    at.radio(key="earth_source").set_value(ARCHIVE_SRC).run()
+    assert not at.exception, at.exception
+    assert any(w.value == earth_module_banner() for w in at.warning), [w.value for w in at.warning]
+    sl = at.slider(key="earth_dates")
+    assert tuple(sl.value) == (datetime.date(2025, 6, 24), datetime.date(2025, 6, 30))       # the last 7 days
+    assert not at.checkbox(key="earth_heldout").value
+    assert at.radio(key="earth_show_a").options == earth.SHOW
+    assert at.radio(key="earth_model").value == HISTORY_TIER
+    week = metric(at, "Detections in Earth")
+    sl.set_range(datetime.date(2025, 1, 1), datetime.date(2025, 6, 30)).run()           # the full range is selectable
+    assert not at.exception and at.slider(key="earth_dates").value[0] < datetime.date(2025, 6, 24)
+    full = metric(at, "Detections in Earth")
+    assert full > week
+    at.checkbox(key="earth_heldout").check().run()
+    assert not at.exception and 0 < metric(at, "Detections in Earth") < full
+    assert any("Archived detections" in h.value for h in at.subheader)
+    assert not any(b.key == "update_live" for b in at.button)               # the update belongs to the live source
+
+    # freshness: a fresh store has no banner, a stale one has a banner with its age, an empty selection says
+    # when the latest detection was and which command fetches newer ones
+    at = None
+    gc.collect()
+    at = run_app(tmp, "fake")
+    assert not any(e.value.startswith("Stale data") for e in at.error), [e.value for e in at.error]
+    store(today - pd.Timedelta(days=3))
+    at = None
+    gc.collect()
+    at = run_app(tmp, "fake")
+    stale = [e.value for e in at.error if e.value.startswith("Stale data")]
+    assert stale and "days" in stale[0] and "UTC" in stale[0] and "python -m src.ingest --once" in stale[0], stale
+    infos = [i.value for i in at.info if i.value.startswith("No detections in this selection")]
+    assert infos and "latest available detection" in infos[0] and "python -m src.ingest --once" in infos[0], infos
+
+    # the update button: no key means a message and nothing else
+    at = None
+    gc.collect()
+    at = run_app(tmp, None)
+    assert any("Update live data cannot run without it" in w.value for w in at.warning)
+    assert not any(b.key == "update_live" for b in at.button)
+
+    # with a key the button starts a background process (a fake command here), one at a time, status by polling
+    updater_command = updater.COMMAND
+    updater.COMMAND = [sys.executable, "-c",
+                       "import time; print('NOAA-20: fetched 1, added 1, kept 1'); time.sleep(4); "
+                       "print('[memory] ingest run: peak working set 1 MB, peak commit 2 MB')"]
+    try:
+        for p in (updater.lock_path(), updater.log_path(), updater.status_path()):
+            p.unlink(missing_ok=True)
+        at = None
+        gc.collect()
+        at = run_app(tmp, "fake")
+        assert "uses a lot of memory" in updater.WARNING and "Close other programs" in updater.WARNING
+        at.button(key="update_live").click().run()
+        assert not at.exception, at.exception
+        assert any("Update running" in i.value for i in at.info), [i.value for i in at.info]
+        assert at.button(key="update_live").proto.disabled                      # one update at a time
+        assert updater.start() == "running"                                     # a second start is refused
+        for _ in range(60):
+            if not updater.is_running():
+                break
+            time.sleep(0.5)
+        at.run()
+        assert any(x.value.startswith("Update finished") for x in at.success), [x.value for x in at.success]
+        assert not at.button(key="update_live").proto.disabled
+        assert "fake" not in str(at.markdown) and "://" not in " ".join(c.value for c in at.caption)
+    finally:
+        updater.COMMAND = updater_command
+    print("front page test passed")
+
+
+def earth_module_banner():
+    from src import earth
+    return earth.ARCHIVE_BANNER
+
+
 SUITES = {"unit": suite_unit, "app_store": test_app_store, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
-          "app_earth": test_app_earth}
+          "app_earth": test_app_earth, "app_front": test_app_front}
 
 
 def main(names=None):

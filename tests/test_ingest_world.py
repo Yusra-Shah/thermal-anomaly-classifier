@@ -4,6 +4,7 @@ Satellites markup. Fake feed only, no network.
 Run from the project root, one suite per process:  python -m pytest tests/test_ingest_world.py -q
 """
 import hashlib
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -355,6 +356,18 @@ def test_selector_legend_satellites_and_help_work_together():
     both = earth.html(data, None, shapes, "Model prediction", "s", codes=earth.focus_codes("Model prediction", "Both"),
                       kinds=kinds, live_source=True)
     assert "Predicted fire (2)" in both and "Predicted static (1)" in both
+
+
+def test_nearest_place_wording_and_predicted_fire_legend():
+    """The place line comes from the nearest named place lookup, so it is not called Country, and the legend
+    never says actual fire."""
+    _, html = page()
+    assert "Nearest place: " in html and "Country: " not in html
+    app_source = (Path(__file__).resolve().parents[1] / "app" / "app.py").read_text(encoding="utf-8")
+    assert "- Nearest place: " in app_source and "- Country: " not in app_source
+    assert "offline list" in app_source                       # the note under the place lines
+    assert "actual fire" not in html.lower() and "actual fire" not in app_source.lower()
+    assert "Predicted fire" in [e[2] for e in earth.legend("Model prediction")]
 
 
 def test_sample_file_for_the_upload_demo():

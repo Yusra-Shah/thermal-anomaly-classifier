@@ -85,11 +85,42 @@ def region_note(region):
 
 
 def freshness_text(latest, now, per_sensor, sensors=None):
-    """Newest detection time in UTC, its age in minutes and the rows per sensor, as one line."""
+    """Newest detection time in UTC, its age and the rows per sensor, as one line."""
     sensors = list(sensors or LIVE_SOURCES)
-    age = max(int(round((pd.Timestamp(now) - pd.Timestamp(latest)).total_seconds() / 60)), 0)
+    minutes = (pd.Timestamp(now) - pd.Timestamp(latest)).total_seconds() / 60
     rows = ", ".join(f"{s} {int(per_sensor.get(s, 0)):,}" for s in sensors)
-    return f"Newest detection {pd.Timestamp(latest):%Y-%m-%d %H:%M} UTC, {age:,} minutes ago. Rows per sensor: {rows}."
+    return f"Newest detection {pd.Timestamp(latest):%Y-%m-%d %H:%M} UTC, {age_text(minutes)} ago. Rows per sensor: {rows}."
+
+
+def stale_text(newest, now, limit_hours=6):
+    """Banner text when the newest detection is older than limit_hours, or None. None time means an empty store."""
+    if newest is None:
+        return ("The store has no detections. Press Update live data or run python -m src.ingest --once.")
+    minutes = (pd.Timestamp(now) - pd.Timestamp(newest)).total_seconds() / 60
+    if minutes <= limit_hours * 60:
+        return None
+    return (f"Stale data: the newest detection is {age_text(minutes)} old ({pd.Timestamp(newest):%Y-%m-%d %H:%M} UTC). "
+            "Newer detections are not in the store yet. Press Update live data or run python -m src.ingest --once.")
+
+
+def empty_text(hours, newest, now):
+    """What an empty selection says: the latest available detection and the command that fetches newer ones."""
+    head = f"No detections in this selection in the last {hours} hours."
+    if newest is None:
+        return head + " The store has none for it. Run python -m src.ingest --once."
+    minutes = (pd.Timestamp(now) - pd.Timestamp(newest)).total_seconds() / 60
+    return (f"{head} The latest available detection is {pd.Timestamp(newest):%Y-%m-%d %H:%M} UTC, "
+            f"{age_text(minutes)} ago. To fetch newer ones press Update live data or run python -m src.ingest --once.")
+
+
+def age_text(minutes):
+    """An age in plain words: minutes below two hours, hours below two days, else days and hours."""
+    m = max(int(round(minutes)), 0)
+    if m < 120:
+        return f"{m:,} minutes"
+    if m < 2 * 24 * 60:
+        return f"{m / 60:.1f} hours"
+    return f"{m // 1440} days {(m % 1440) // 60} hours"
 
 
 def key_status(key, timeout=TIMEOUT):

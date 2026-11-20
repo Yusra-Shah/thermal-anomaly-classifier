@@ -1,6 +1,7 @@
 """Streamlit demo. Run from the project root:  streamlit run app/app.py"""
 import json
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import joblib
@@ -13,7 +14,7 @@ import streamlit.components.v1 as components
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src import earth, geo, ingest, live, serve, uncertain  # noqa: E402
+from src import earth, geo, ingest, live, serve, uncertain, updater  # noqa: E402
 from src.context import detail  # noqa: E402
 from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
@@ -33,7 +34,7 @@ HISTORY = "With history (past detections)"
 OPERATING_POINTS = ["F1 optimal", "precision >= 0.90", "precision >= 0.95"]
 
 
-@st.cache_resource(max_entries=1)       # one tier's scored table at a time, kept as it is (no copy per run)
+@st.cache_resource(max_entries=2)       # the sidebar tier's table and the Earth archive table, kept as they are
 def load_scored(name):
     p = PROC_DIR / name
     if not p.exists():
@@ -41,7 +42,7 @@ def load_scored(name):
     return live.add_geo(pd.read_parquet(p), PROC_DIR / "geo_cells.parquet")    # geography once per cell
 
 
-@st.cache_resource(max_entries=1)       # one tier's model at a time
+@st.cache_resource(max_entries=2)       # the sidebar tier's model and the Earth model
 def load_model(name):
     """Memory mapped load: the models are saved uncompressed, so the big arrays are not copied."""
     p = MODEL_DIR / name
@@ -84,7 +85,7 @@ def map_view(df, city=False, width=1000, height=500, pad=1.3):
 
 def draw_map(df, color_col, max_points, key, country=None, province=False, city=False,
              days_col=None, days_label="Days seen at this spot"):
-    """The map used by the Map tab and the upload tab.
+    """The map used by the upload tab.
 
     color_col is 1 for static (grey) and 0 for fire (red). Only the columns the map needs are
     sent to the browser. `country` is an ISO code: its outline and provinces are drawn, and
@@ -209,15 +210,14 @@ def score_upload(up, tier, bundle, thr):
 
 
 @st.cache_data(show_spinner="Computing features and scores (the first run for a region is slower)")
-def live_scored(region, stamp, _inst_bundle=None):
+def live_scored(region, stamp):
     """Features, history, both model scores and geography for the stored region. Cached by file stamp.
 
-    The instant model is the large one. The sidebar's copy is reused when it is loaded,
-    otherwise it is loaded here and released as soon as the scores are computed.
+    The instant model is the large one, loaded here and released as soon as the scores are computed.
     """
     raw, fetched = live.load_snapshot(region)
     hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")      # small
-    inst = _inst_bundle or joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
+    inst = joblib.load(MODEL_DIR / "best_model_headline.joblib", mmap_mode="r")
     df = live.build_scored(region, hist, inst, raw)
     meta = {"bands": {"history": uncertain.bands_of(hist, "best_model_history_band.json"),
                       "instant": uncertain.bands_of(inst, "best_model_headline_band.json")},
@@ -257,21 +257,36 @@ def live_store_scored(region, hours, stamp):
     return df, last, meta
 
 
+STALE_HOURS = 6
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def newest_detection(region, stamp):
+    """Time of the newest detection of the store (or of one region), cached for five minutes."""
+    return ingest.latest_detection(region=None if region == ALL_REGIONS else region)
+
+
 def store_source(region, live_tier, thr, col):
-    """Live source from the incremental store: last 6, 24 or 72 hours, freshness, no fetch controls."""
+    """Live source from the incremental store: last 6, 24 or 72 hours, freshness, a banner when it is stale."""
     path = ingest.store_path()
     hours = st.radio("Time window", LIVE_HOURS, index=1, horizontal=True, key="earth_hours",
                      format_func=lambda h: f"last {h} hours")
+    stamp = path.stat().st_mtime_ns
     try:
-        df, last, meta = live_store_scored(region, hours, path.stat().st_mtime_ns)
+        df, last, meta = live_store_scored(region, hours, stamp)
     except Exception as e:
         st.error(f"Could not read the live store: {type(e).__name__}")
         return None
-    st.caption(f"Live store, last ingest {pd.Timestamp(last):%Y-%m-%d %H:%M} UTC. It is updated by python -m "
-               f"src.ingest, there is no fetch button here. The view reads the store again every "
-               f"{LIVE_REFRESH_SECONDS // 60} minutes. Live results are unvalidated.")
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    newest = newest_detection(region, stamp)
+    st.caption(f"Live store, last ingest {pd.Timestamp(last):%Y-%m-%d %H:%M} UTC. Press Update live data to fetch "
+               f"newer detections. The view reads the store again every {LIVE_REFRESH_SECONDS // 60} minutes. "
+               "Live results are unvalidated.")
+    stale = live.stale_text(newest, now, STALE_HOURS)
+    if stale:
+        st.error(stale)
     if df is None or df.empty:
-        st.info(f"The live store has no detections for this selection in the last {hours} hours.")
+        st.info(live.empty_text(hours, newest, now))
         return None
     if thr is None:
         thr = meta["inst_threshold"]
@@ -283,14 +298,9 @@ def store_source(region, live_tier, thr, col):
         if n_un:
             st.caption(f"{n_un:,} of these detections are in regions not in the training data (results "
                        "unvalidated). They are marked in the legend and in the popups.")
-    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
     latest = df["timestamp"].max()
     per = df["sensor"].value_counts().to_dict()
     st.caption(live.freshness_text(latest, now, per, live.LIVE_SOURCES))
-    age_h = (now - latest).total_seconds() / 3600
-    if age_h > 24:
-        st.warning(f"The newest detection in this selection is {age_h:.0f} hours old. Run python -m src.ingest "
-                   "or check that the scheduled task is running.")
     view = df.assign(p_static=df[col], pred_static=(df[col] >= thr).astype(int))
     return view, region, False, meta["bands"]["history" if live_tier == HISTORY else "instant"]
 
@@ -310,48 +320,44 @@ def instant_note():
     return text
 
 
-def live_source(tier, bundle):
-    """Controls and data of the live source: region, model, refresh, offline, days shown.
+def model_controls(hist):
+    """The Earth model tier (default With history) and its operating point, for the live and the archive source.
 
-    tier and bundle are the sidebar's: the instant model is reused when it is already loaded.
-    Returns (frame with p_static and pred_static, region, demo, band) or None when nothing can be shown.
-    """
-    if not (MODEL_DIR / "best_model_history.joblib").exists() or \
-            not (MODEL_DIR / "best_model_headline.joblib").exists():
-        st.warning("The live source needs both trained models. Run `python -m src.train --tag headline` "
-                   "and `python -m src.final_history` first.")
-        return None
-    hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")   # a few hundred KB
+    Returns (the four columns, the tier, the threshold or None for the instant tier, the live score column)."""
+    cols = st.columns([3, 3, 3, 2])
+    tier_pick = cols[1].radio("Model tier", [HISTORY, INSTANT], key="earth_model")
+    if tier_pick == HISTORY:
+        names = [n for n in OPERATING_POINTS if hist["thresholds"].get(n) is not None]
+        point = cols[2].selectbox("Operating point", names,
+                                  index=names.index(hist.get("default_operating_point", names[0])), key="earth_point")
+        return cols, tier_pick, float(hist["thresholds"][point]), "p_static_history"
+    st.caption(instant_note())
+    return cols, tier_pick, None, "p_static_instant"          # the saved threshold is read with the scores
+
+
+def live_source(cols, live_tier, thr, col):
+    """Region, store or snapshot, days shown and freshness of the live source.
+
+    Returns (frame with p_static and pred_static, region, demo, band) or None when nothing can be shown."""
     key = live.load_key()
     st.info("Near real time data from NOAA-20 and NOAA-21, about 3 hours behind the satellite. There is no "
             "ground truth on live data, so only predictions are shown. History features are built inside each "
-            "satellite and need up to 60 days of data, so the first fetch is slower.")
+            "satellite and need up to 90 days of data, so the first fetch is slower.")
     st.caption("The models were trained on Suomi NPP and validated on NOAA-20 and NOAA-21 archive data. "
                "Near real time data has not been validated against the archive.")
-
-    c1, c2, c3, c4 = st.columns([3, 3, 3, 2])
     has_store = ingest.store_path().exists()
-    region = c1.selectbox("Region loaded", ([ALL_REGIONS] if has_store else []) + list(live.REGIONS),
-                          key="earth_region",
-                          format_func=lambda n: n if n == ALL_REGIONS or live.is_trained(n) else f"{n} (not in training)")
-    live_tier = c2.radio("Live model", [HISTORY, INSTANT], key="earth_live_tier")
-    if live_tier == HISTORY:
-        names = [n for n in OPERATING_POINTS if hist["thresholds"].get(n) is not None]
-        point = c3.selectbox("Live operating point", names,
-                             index=names.index(hist.get("default_operating_point", names[0])), key="earth_point")
-        thr, col = float(hist["thresholds"][point]), "p_static_history"
-    else:
-        thr, col = None, "p_static_instant"          # the saved threshold is read with the scores below
-        st.caption(instant_note())
+    region = cols[0].selectbox("Region loaded", ([ALL_REGIONS] if has_store else []) + list(live.REGIONS),
+                               key="earth_region",
+                               format_func=lambda n: n if n == ALL_REGIONS or live.is_trained(n) else f"{n} (not in training)")
     if has_store:
         return store_source(region, live_tier, thr, col)
     if key is None:
-        c4.caption("Offline: no map key")
+        cols[3].caption("Offline: no map key")
         offline = True
         st.warning("No FIRMS map key found. Set FIRMS_MAP_KEY in a .env file in the project root or in "
                    "the environment to fetch live data. Showing the saved snapshot if there is one.")
     else:
-        offline = c4.checkbox("Offline (saved snapshot)", value=False, key="earth_offline")
+        offline = cols[3].checkbox("Offline (saved snapshot)", value=False, key="earth_offline")
     if st.button("Refresh data", disabled=offline, key="earth_refresh"):
         bar = st.progress(0.0, text="Fetching from FIRMS")
         try:
@@ -366,10 +372,9 @@ def live_source(tier, bundle):
         st.info("No data for this region yet. Add a map key and press Refresh data.")
         return None
     try:
-        df, fetched, meta = live_scored(region, snap.stat().st_mtime_ns,
-                                        bundle if tier == INSTANT else None)
+        df, fetched, meta = live_scored(region, snap.stat().st_mtime_ns)
     except Exception as e:
-        st.error(f"Could not process the stored data: {e}")
+        st.error(f"Could not process the stored data: {type(e).__name__}")
         return None
     if thr is None:
         thr = meta["inst_threshold"]
@@ -388,16 +393,15 @@ def live_source(tier, bundle):
                      help="Features always use the full stored history.")
     view = df[df["acq_date"] > df["acq_date"].max() - pd.Timedelta(days=days)]
     view = view.assign(p_static=view[col], pred_static=(view[col] >= thr).astype(int))
-    st.caption(f"Latest detection {latest:%Y-%m-%d %H:%M} UTC, data age {age_h:.1f} h."
+    st.caption(f"Latest detection {latest:%Y-%m-%d %H:%M} UTC, data age {live.age_text(age_h * 60)}."
                + (f" Last fetch {fetched:%Y-%m-%d %H:%M} UTC." if fetched is not None else ""))
     if not demo and "satellite_name" in df.columns:
         per = df["satellite_name"].value_counts()
         rows = ", ".join(f"{n} {int(per.get(n, 0)):,}" for n in live.LIVE_SOURCES)
         st.caption(f"Acquisition dates {df['acq_date'].min():%Y-%m-%d} to {df['acq_date'].max():%Y-%m-%d}. "
                    f"Rows per satellite: {rows}.")
-    if age_h > 24 and not demo:
-        st.warning(f"The newest detection in this region is {age_h:.0f} hours old. Either the snapshot is "
-                   "old or the source has stopped delivering new data.")
+    if age_h > STALE_HOURS and not demo:
+        st.error(live.stale_text(latest, now, STALE_HOURS))
     return view, region, demo, meta["bands"]["history" if live_tier == HISTORY else "instant"]
 
 
@@ -439,39 +443,8 @@ else:
 
 scored = scored.assign(p_static=scored[prob_col], pred_static=(scored[prob_col] >= thr).astype(int))
 
-tab_map, tab_spot, tab_live, tab_metrics, tab_results, tab_earth = st.tabs(
-    ["Map", "Why a spot is static", "Classify a new file", "Model metrics", "Results", "Earth"])
-
-with tab_map:
-    c1, c2, c3 = st.columns([2, 2, 3])
-    view_mode = c1.radio("View", ["Raw detections", "Model prediction", "Ground truth"], horizontal=True)
-    only_test = c2.checkbox("Only held out test detections", value=False)
-    dmin, dmax = scored["acq_date"].min().date(), scored["acq_date"].max().date()
-    rng = c3.slider("Date range", dmin, dmax, (dmin, dmax)) if dmin != dmax else (dmin, dmax)
-
-    d = scored[(scored["acq_date"].dt.date >= rng[0]) & (scored["acq_date"].dt.date <= rng[1])]
-    if only_test:
-        d = d[d["in_test"]]
-
-    d, country, province, city = geo_filters(d, "map")
-    kw = dict(days_col="cell_days", days_label="Days seen at this spot")
-    if d.empty:
-        st.info("No detections for this selection.")
-    elif view_mode == "Raw detections":
-        d = d.assign(raw=0)
-        draw_map(d, "raw", MAX_POINTS, "map", country, province, city, **kw)
-        st.caption("Every detection looks the same to the satellite.")
-    elif view_mode == "Model prediction":
-        draw_map(d, "pred_static", MAX_POINTS, "map", country, province, city, **kw)
-        st.caption("Red: predicted fire. Grey: predicted static heat source.")
-    else:
-        draw_map(d, "is_static", MAX_POINTS, "map", country, province, city, **kw)
-        st.caption("Red: fire. Grey: static source according to the NASA type label (ground truth).")
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Detections shown", f"{len(d):,}")
-    m2.metric("Predicted static", f"{int(d['pred_static'].sum()):,}")
-    m3.metric("Predicted fire", f"{int((1 - d['pred_static']).sum()):,}")
+tab_earth, tab_spot, tab_live, tab_metrics, tab_results = st.tabs(
+    ["Earth", "Why a spot is static", "Classify a new file", "Model metrics", "Results"])
 
 with tab_spot:
     st.write("Pick a location that was flagged repeatedly and see it appear day after day.")
@@ -486,6 +459,9 @@ with tab_spot:
         st.bar_chart(per_day)
 
 with tab_live:
+    st.caption("This tab uses the sidebar tier, Instant by default: an uploaded file has no past detections of "
+               f"its own places, which the history tier needs. With history works only for a file that covers "
+               f"{MIN_HISTORY_DAYS} days or more, and a shorter file gets a warning.")
     if tier == INSTANT:
         st.write("Upload a FIRMS VIIRS CSV the model has never seen. Each detection is scored "
                  "from its own readings only.")
@@ -698,7 +674,9 @@ with tab_results:
         "in that rule. The instant tier uses a single reading and is much weaker.")
 
 
-ARCHIVE_SRC, LIVE_SRC = "Archive (Jan to Jun 2025)", "Live near real time"
+LIVE_SRC = "Live near real time"
+ARCHIVE_SRC = "Historical archive (Jan to Jun 2025, includes the data the models were trained on)"
+ARCHIVE_BANNER = earth.ARCHIVE_BANNER
 
 
 # ---------------------------------------------------------------- detail panel of a clicked detection
@@ -780,7 +758,7 @@ def find_pick(g, pick):
 
 def panel_payload(row, base, is_live, band):
     m = panel_models()
-    tier_name = st.session_state.get("earth_live_tier", HISTORY) if is_live else tier
+    tier_name = st.session_state.get("earth_model", HISTORY)
     key = "history" if tier_name == HISTORY else "instant"
     bundle = m.hist if key == "history" else m.inst
     bands = m.bands[key]
@@ -867,8 +845,10 @@ def render_panel(p):
 
     st.markdown("**Place**")
     if pl:
-        st.markdown("\n".join([f"- Country: {_v(pl['country'])}", f"- Province or state: {_v(pl['province'])}",
+        st.markdown("\n".join([f"- Nearest place: {_v(pl['country'])}", f"- Province or state: {_v(pl['province'])}",
                                f"- Nearest city: {_v(pl['city'])}", f"- Elevation: {_v(pl['elevation_m'], ' m')}"]))
+        st.caption("Place names come from the nearest named place in an offline list, so a remote or offshore "
+                   "point can show a neighbouring country.")
         _src(pl)
     else:
         st.write("unavailable")
@@ -914,7 +894,7 @@ def detail_panel(pick, g, base, is_live, bands, band, suffix):
             st.caption("The selected detection is not in this view any more.")
             return
         cache_key = f"earth_detail_{suffix}"
-        ident = json.dumps([pick, tier, st.session_state.get("earth_live_tier"), str(band and band.get("target"))],
+        ident = json.dumps([pick, st.session_state.get("earth_model"), str(band and band.get("target"))],
                            sort_keys=True, default=str)
         got = st.session_state.get(cache_key)
         if not got or got[0] != ident:
@@ -927,38 +907,133 @@ def detail_panel(pick, g, base, is_live, bands, band, suffix):
         render_panel(got[1])
 
 
-def earth_tab(archive, tier, bundle):
+def update_status_body():
+    """Status of the update process, polled every few seconds by a fragment while it runs."""
+    stt = updater.status()
+    was = st.session_state.get("update_was_running", False)
+    if stt["state"] == "running":
+        st.info("Update running" + (f" since {stt['started']} UTC" if stt.get("started") else "") +
+                ". The globe stays usable. The numbers below come from its log.")
+    elif stt["state"] == "finished":
+        st.success(f"Update finished: {stt['message']}." + (f" Ended {stt['finished']} UTC." if stt.get("finished") else ""))
+    elif stt["state"] == "failed":
+        st.error(f"Update failed: {stt['message']}. The store is unchanged, and fetched days are kept for the "
+                 "next update.")
+    for line in stt.get("lines", []):
+        st.caption(line)
+    st.session_state["update_was_running"] = stt["state"] == "running"
+    if was and stt["state"] != "running":
+        live_store_scored.clear()
+        newest_detection.clear()
+        st.rerun()                                   # the whole page once, to show the new data
+
+
+def update_controls():
+    """The Update live data button: ingest --once in a background process, one at a time, status by polling."""
+    if updater.key_missing():
+        st.warning("No FIRMS map key found. Set FIRMS_MAP_KEY in a .env file in the project root or in the "
+                   "environment. Update live data cannot run without it.")
+        return
+    running = updater.is_running()
+    c = st.columns([2, 6])
+    if c[0].button("Update live data", disabled=running, key="update_live", help=updater.WARNING):
+        res = updater.start()
+        if res == "failed":
+            st.error("The update could not be started.")
+        else:
+            st.rerun()                               # the page again, so the button shows as disabled at once
+        running = updater.is_running()
+    c[1].caption(updater.WARNING)
+    if hasattr(st, "fragment"):
+        st.fragment(run_every=3 if running else None)(update_status_body)()
+    else:
+        update_status_body()
+        if running and st.button("Check the update", key="update_check"):
+            st.rerun()
+
+
+def earth_tab():
     """One Earth: globe, flat map and terrain in a MapLibre page (needs internet for the tiles).
 
-    The archive uses the sidebar tier and operating point. The live source has its own controls and, where
-    Streamlit has fragments, rereads the store every ten minutes without rerunning the rest of the page.
-    Changing the Show option reloads the page, which restores the camera from the browser session.
+    The front page: live near real time detections by default. The archive of January to June 2025 is the other
+    source and is labelled as including the data the models were trained on. Both sources use the model tier
+    chosen on this tab. The live source, where Streamlit has fragments, rereads the store every ten minutes
+    without rerunning the rest of the page. Changing the Show option reloads the page, which restores the
+    camera from the browser session.
     """
-    src = st.radio("Data source", [ARCHIVE_SRC, LIVE_SRC], horizontal=True, key="earth_source")
-    if src == LIVE_SRC and hasattr(st, "fragment"):
-        st.fragment(run_every=LIVE_REFRESH_SECONDS)(earth_body)(src, archive, tier, bundle)
+    src = st.radio("Data source", [LIVE_SRC, ARCHIVE_SRC], horizontal=True, key="earth_source")
+    if src == LIVE_SRC:
+        hours = st.session_state.get("earth_hours", 24)
+        st.subheader(f"Detections of the last {hours} hours, classified by the model")
+        update_controls()
     else:
-        earth_body(src, archive, tier, bundle)
+        st.subheader("Archived detections, classified by the model")
+        st.warning(ARCHIVE_BANNER)
+    if src == LIVE_SRC and hasattr(st, "fragment"):
+        st.fragment(run_every=LIVE_REFRESH_SECONDS)(earth_body)(src)
+    else:
+        earth_body(src)
         if src == LIVE_SRC and st.button("Refresh now", key="earth_refresh_view"):
             st.cache_data.clear()
             st.rerun()
 
 
-def earth_body(src, archive, tier, bundle):
+def archive_source(live_tier, thr):
+    """The archive frame of the chosen model tier for the chosen dates, with the label at the operating point.
+
+    Returns (frame with p_static and pred_static, bands) or None."""
+    history = live_tier == HISTORY
+    frame = load_scored("scored_history.parquet" if history else f"scored_{TAG}.parquet")
+    bundle = load_model("best_model_history.joblib" if history else f"best_model_{TAG}.joblib")
+    if frame is None or bundle is None:
+        st.warning("No scored archive found for this tier. Run `python -m src.train --tag headline` (instant) "
+                   "or `python -m src.final_history` (with history) first.")
+        return None
+    if thr is None:
+        thr = float(bundle["threshold"])
+        st.caption(f"Instant model, saved threshold {thr:.3f}")
+    prob_col = "p_static_history" if history else "p_static"
+    dmin, dmax = frame["acq_date"].min().date(), frame["acq_date"].max().date()
+    c1, c2 = st.columns([3, 2])
+    if dmin != dmax:
+        week = (max(dmin, dmax - timedelta(days=6)), dmax)               # the last 7 days of the data
+        rng = c1.slider("Date range", dmin, dmax, week, key="earth_dates",
+                        help="Seven days are drawn by default, so six months of points are not drawn at once.")
+    else:
+        rng = (dmin, dmax)
+    held = c2.checkbox("Only held out test detections", value=False, key="earth_heldout",
+                       help="The detections of cells that were not used for training, the ones to evaluate on.")
+    keep = (frame["acq_date"] >= pd.Timestamp(rng[0])) & (frame["acq_date"] <= pd.Timestamp(rng[1]))
+    if held:
+        keep &= frame["in_test"]
+    d = frame[keep]
+    base = d.assign(p_static=d[prob_col], pred_static=(d[prob_col] >= thr).astype(int))
+    bands = uncertain.bands_of(bundle, "best_model_history_band.json" if history else "best_model_headline_band.json")
+    return base, bands
+
+
+def earth_body(src):
     is_live = src == LIVE_SRC
     region, demo = None, False
+    if not (MODEL_DIR / "best_model_history.joblib").exists() or \
+            not (MODEL_DIR / "best_model_headline.joblib").exists():
+        st.warning("The Earth tab needs both trained models. Run `python -m src.train --tag headline` "
+                   "and `python -m src.final_history` first.")
+        return
+    hist = joblib.load(MODEL_DIR / "best_model_history.joblib", mmap_mode="r")   # a few hundred KB
+    cols, live_tier, thr, col = model_controls(hist)
     if is_live:
-        got = live_source(tier, bundle)
+        got = live_source(cols, live_tier, thr, col)
         if got is None:
             return
         base, region, demo, bands = got
         prefix, suffix = "earth_l", "l"
     else:
-        base, prefix, suffix = archive, "earth_a", "a"
-        if tier == INSTANT:
-            st.caption(instant_note())
-        bands = uncertain.bands_of(bundle, "best_model_headline_band.json" if tier == INSTANT
-                                   else "best_model_history_band.json")
+        got = archive_source(live_tier, thr)
+        if got is None:
+            return
+        base, bands = got
+        prefix, suffix = "earth_a", "a"
 
     c_show, c_focus = st.columns([3, 2])
     show = c_show.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, index=1, horizontal=True,
@@ -971,8 +1046,8 @@ def earth_body(src, archive, tier, bundle):
     if not focus_on:
         c_focus.caption(f"Not used in {show}: every detection is drawn.")
     st.caption(earth.SHOW_HELP)
-    st.caption("In Model prediction the Band selector decides fire, static or uncertain. The sidebar threshold "
-               "only affects the Map tab and the Errors only view.")
+    st.caption("In Model prediction the Band selector decides fire, static or uncertain. The operating point "
+               "above sets the label used in Errors only and in the popups.")
     if is_live:
         st.caption("Ground truth and Errors only are disabled for live data: there is no ground truth on live data.")
     else:
@@ -995,9 +1070,9 @@ def earth_body(src, archive, tier, bundle):
         if band.get("oof_coverage", 0) >= 0.999:
             st.caption("On the training scores the forced binary decision already meets this target, so the "
                        "band decides every point and there are no uncertain points. Try strict (0.98).")
-    with_uncertain = True
+    with_uncertain = False
     if band and show == "Model prediction":
-        with_uncertain = c_focus.checkbox("Include uncertain", value=True, key=f"earth_unc_{suffix}",
+        with_uncertain = c_focus.checkbox("Include uncertain", value=False, key=f"earth_unc_{suffix}",
                                           disabled=focus != "Fires",
                                           help="With Fires, also draw the uncertain (amber) points, so hedged "
                                                "calls are not hidden.")
@@ -1017,8 +1092,8 @@ def earth_body(src, archive, tier, bundle):
     else:
         filtered = len(g) < len(base)
         picked = f" Selection: {focus}." if codes is not None else ""
-        st.caption(note + picked + " Same tier and operating point as the Map tab for the archive. Needs internet "
-                   "for the imagery. To see every detection around one place, pick a province or a nearest city.")
+        st.caption(note + picked + " Needs internet for the imagery. To see every detection around one place, pick a "
+                   "province or a nearest city.")
         st.caption("Click a detection to fly to it and see its satellite pixel footprint (an approximate rectangle "
                    "of scan by track, centred on the reported point). Escape or a click elsewhere returns the view. "
                    "The archive has no scan and track, so archive footprints use the nominal 375 m pixel.")
@@ -1051,4 +1126,4 @@ def earth_body(src, archive, tier, bundle):
 
 
 with tab_earth:
-    earth_tab(scored, tier, bundle)
+    earth_tab()
