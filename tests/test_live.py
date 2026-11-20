@@ -499,6 +499,8 @@ def test_app_store(tmp):
     caps = [c.value for c in at.caption]
     assert any("Live store, last ingest" in c and "Live results are unvalidated" in c for c in caps), caps
     assert any("reads the store again every 10 minutes" in c for c in caps)
+    from src import earth as earth_module
+    assert earth_module.SHOW_HELP in caps, caps                                     # the plain language help line
     win = store[store["timestamp"] >= now - pd.Timedelta(hours=24)]
     n20, n21 = (int((win["sensor"] == s).sum()) for s in ("NOAA-20", "NOAA-21"))
     fresh = [c for c in caps if c.startswith("Newest detection")]
@@ -692,9 +694,11 @@ def test_app_earth(tmp):
             assert "Predicted static (" not in page_html(at)                     # legend follows the selection
             at.radio(key="earth_focus_a").set_value("Static sources").run()
             assert not at.exception, at.exception
-            static_html = page_html(at) if metric(at, "Predicted static") else ""
+            static_html = page_html(at) if at.get("iframe") else ""
             if static_html:
                 assert "Predicted fire (" not in static_html and "Predicted static (" in static_html
+            else:                                                                # the band calls nothing static here
+                assert any("No detections match this selection." in i.value for i in at.info)
             for show in ("Raw detections", "Errors only"):                       # the selector does nothing there
                 at.radio(key="earth_show_a").set_value(show).run()
                 assert at.radio(key="earth_focus_a").proto.disabled

@@ -970,6 +970,7 @@ def earth_body(src, archive, tier, bundle):
                                "static heat source (NASA static in Ground truth). Both: all detections.")
     if not focus_on:
         c_focus.caption(f"Not used in {show}: every detection is drawn.")
+    st.caption(earth.SHOW_HELP)
     st.caption("In Model prediction the Band selector decides fire, static or uncertain. The sidebar threshold "
                "only affects the Map tab and the Errors only view.")
     if is_live:
@@ -1024,7 +1025,7 @@ def earth_body(src, archive, tier, bundle):
         sig = "|".join([src, str(region)] + [str(st.session_state.get(f"{prefix}_{n}"))
                                              for n in ("continent", "country", "province", "city")])
         page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
-                          show, sig, demo, three_way=bool(band), codes=codes, kinds=kinds)
+                          show, sig, demo, three_way=bool(band), codes=codes, kinds=kinds, live_source=is_live)
         view = "|".join([sig, show, focus, str(with_uncertain), str(band and band.get("target"))])
         sel = read_pick(suffix, view)
         c_map, c_panel = st.columns([7, 3])

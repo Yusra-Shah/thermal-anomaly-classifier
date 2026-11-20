@@ -292,10 +292,101 @@ def test_satellites_toggle_markup_and_orbit_constants():
         assert name in html
     assert 'id="sat"' in html and "98.7" in html and "101 * 60" in html and "SPEEDUP = 60" in html
     assert "Illustrative orbits, not real positions" in html
-    assert html.count('type: "geojson"') >= 2 and "maplibre-gl.js" in html          # one small source for the satellites
     assert "setSats(satOn)" in html and "satOn = true" in html                      # on by default, independent of Rotate
     assert len(data["x"]) == 2 and earth.MAX_POINTS == 20_000                       # no effect on the point cap
-    assert "installSats" in html and "sat-trail" in html and "line-opacity" in html
+    assert "requestAnimationFrame(frame)" in html and "maplibre-gl.js" in html
+
+
+def test_satellite_icons_orbit_lines_and_far_side():
+    _, html = page()
+    assert 'id="satcv"' in html and "function makeSprite" in html                    # one small canvas, drawn sprites
+    assert "ICON = 28" in html and "satCtx.rotate(ang)" in html                      # about 28 px, turned to the travel direction
+    assert "createRadialGradient" in html                                            # soft glow
+    assert "ORBIT_POINTS" in html and "TRAIL_POINTS" in html                         # faint orbit line and fading track
+    assert "function nearSide" in html and "if (!ok)" in html                        # hidden on the far side of the globe
+    assert "satCtx.strokeText(q.name" in html                                        # thin name label beneath
+    assert "sat-dot" not in html and "setData(satData" not in html                   # the dot markers are gone
+    assert "sourcedata" in html                                                      # the page still has its other sources
+
+
+def test_satellite_legend_text():
+    _, html = page()
+    assert earth.SAT_NOTES == {"S-NPP": "S-NPP (no new data since 2 Nov 2026)", "NOAA-20": "NOAA-20 (active)",
+                               "NOAA-21": "NOAA-21 (active)"}
+    for text in earth.SAT_NOTES.values():
+        assert text in html
+    assert "Illustrative orbits, not real positions" in html
+    assert "CFG.sat_notes[q.name]" in html
+
+
+def test_help_lines():
+    assert earth.SHOW_HELP == ("Raw detection: a hot pixel reported by the satellite, not classified. Model prediction: "
+                               "our classification of each detection as fire, static or uncertain.")
+    assert earth.LIVE_NOTE == ("Predicted fire means any vegetation fire, including routine farm and savanna burning. "
+                               "It does not mean a reported wildfire event.")
+    d = pd.DataFrame({"longitude": [10.0], "latitude": [5.0], "p_static": [0.1], "pred_static": [0],
+                      "bright_ti4": [330.0], "frp": [1.0], "acq_date": pd.to_datetime(["2026-11-15"]),
+                      "cc": ["NG"], "admin1": ["a"]})
+    data, _ = earth.payload(d, d["pred_static"].to_numpy())
+    shapes = {"sel": None, "provs": None, "prov": None}
+    live_html = earth.html(data, None, shapes, "Model prediction", "s", live_source=True)
+    archive_html = earth.html(data, None, shapes, "Model prediction", "s")
+    assert earth.LIVE_NOTE in live_html and earth.LIVE_NOTE not in archive_html
+
+
+def test_selector_legend_satellites_and_help_work_together():
+    """The Fires, Static, Both selector with legend counts, the satellite entries, the live note and the
+    click footprint code are all in one page."""
+    d = pd.DataFrame({"longitude": [10.0, 20.0, 30.0], "latitude": [5.0, 6.0, 7.0], "p_static": [0.1, 0.9, 0.5],
+                      "pred_static": [0, 1, 0], "bright_ti4": [330.0, 340.0, 335.0], "frp": [1.0, 2.0, 3.0],
+                      "scan": [0.4, 0.5, 0.45], "track": [0.4, 0.5, 0.45],
+                      "acq_date": pd.to_datetime(["2026-11-15"] * 3), "cc": ["NG"] * 3, "admin1": ["a", "b", "c"]})
+    kinds = d["pred_static"].to_numpy()
+    codes = earth.focus_codes("Model prediction", "Fires", True)
+    drawn, k = earth.apply_focus(d, kinds, codes)
+    data, _ = earth.payload(drawn, k)
+    shapes = {"sel": None, "provs": None, "prov": None}
+    html = earth.html(data, None, shapes, "Model prediction", "s", codes=codes, kinds=k, live_source=True)
+    assert "Predicted fire (2)" in html and "Predicted static" not in html.split("CFG = ")[1].split(";")[0]
+    for text in list(earth.SAT_NOTES.values()) + [earth.LIVE_NOTE, "Illustrative orbits, not real positions"]:
+        assert text in html
+    assert "function drawSats" in html and "function drawSel" in html and "installSats" not in html
+    assert 'id="satcv"' in html and 'id="back"' in html
+    both = earth.html(data, None, shapes, "Model prediction", "s", codes=earth.focus_codes("Model prediction", "Both"),
+                      kinds=kinds, live_source=True)
+    assert "Predicted fire (2)" in both and "Predicted static (1)" in both
+
+
+def test_sample_file_for_the_upload_demo():
+    from pathlib import Path
+    from src.data import REQUIRED
+    path = Path(__file__).resolve().parents[1] / "samples" / "sample_viirs.csv"
+    assert path.exists() and path.stat().st_size < 1_000_000
+    df = pd.read_csv(path)
+    assert 1500 <= len(df) <= 2500 and set(REQUIRED) <= set(df.columns)
+    assert not {"type", "region", "sensor", "label", "is_static"} & set(df.columns)        # no labels
+    assert set(df["daynight"]) == {"D", "N"} and df["satellite"].isin(["N20", "N21"]).all()
+    boxes = list(live.REGIONS.values())
+    inside = [sum(w <= x <= e and s <= y <= n for (w, s, e, n) in boxes) for x, y in zip(df["longitude"], df["latitude"])]
+    assert min(inside) >= 1                                                                 # every row is inside a live box
+    regions = {next(r for r, (w, s, e, n) in live.REGIONS.items() if w <= x <= e and s <= y <= n)
+               for x, y in zip(df["longitude"], df["latitude"])}
+    assert len(regions) >= 10                                                               # mixed regions
+    # the file goes through the same code as the Classify a new file tab, instant tier and history tier
+    from src.data import clean, normalize_columns
+    from src.features import add_features
+    from src.history import add_history, add_history_v2
+    from src.label import add_cell
+    new = add_cell(add_features(clean(normalize_columns(df))))
+    assert len(new) > 0.95 * len(df)
+    new["source_file"] = "sample_viirs.csv"
+    new = add_history_v2(add_history(new))
+    models = serve.Models()
+    for tier in ("instant", "history"):
+        out = serve.score_tier(models, tier, new)
+        assert len(out["p"]) == len(new) and np.isfinite(out["p"]).all()
+    ignore = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert not any(line.strip() in ("samples", "samples/", "samples/*", "*.csv", "*.csv") for line in ignore)
 
 
 def test_untrained_marking_in_payload_and_page():

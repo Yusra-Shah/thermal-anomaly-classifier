@@ -12,6 +12,12 @@ from . import geo, live, uncertain
 
 MAPLIBRE = "5.6.0"
 MAX_POINTS = 20_000
+LIVE_NOTE = ("Predicted fire means any vegetation fire, including routine farm and savanna burning. "
+             "It does not mean a reported wildfire event.")
+SHOW_HELP = ("Raw detection: a hot pixel reported by the satellite, not classified. Model prediction: our "
+             "classification of each detection as fire, static or uncertain.")
+SAT_NOTES = {"S-NPP": "S-NPP (no new data since 2 Nov 2026)", "NOAA-20": "NOAA-20 (active)",
+             "NOAA-21": "NOAA-21 (active)"}
 
 ATTRIBUTION = ("Imagery: Esri, Maxar, Earthstar Geographics and the GIS User Community. "
                "Labels: Esri. Terrain: Mapzen, AWS Terrain Tiles. Map style: Carto, OpenStreetMap contributors. "
@@ -156,10 +162,12 @@ def outlines(cc, province, df=None):
     return out
 
 
-def html(data, box, shapes, show, sig, demo=False, height=700, three_way=False, codes=None, kinds=None):
+def html(data, box, shapes, show, sig, demo=False, height=700, three_way=False, codes=None, kinds=None,
+         live_source=False):
     cfg = {"data": data, "box": box, "shapes": shapes, "lines": geo.country_lines(), "demo": demo,
            "legend": legend(show, three_way, codes, kinds), "sig": sig, "untrained": live.UNTRAINED_NOTE,
-           "any_untrained": any(data.get("u", []))}
+           "any_untrained": any(data.get("u", [])), "live_note": LIVE_NOTE if live_source else "",
+           "sat_notes": SAT_NOTES}
     page = (TEMPLATE.replace("__VER__", MAPLIBRE).replace("__HEIGHT__", str(height - 24))
             .replace("__ATTR__", ATTRIBUTION).replace("__CFG__", json.dumps(cfg, separators=(",", ":"))))
     return BOOT.replace("__PAGE__", page.replace("</script", "<\\/script"))
@@ -189,13 +197,14 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
 #foot { background: #fff; padding: 3px 8px; font-size: 10px; color: #666; height: 18px; overflow: hidden; white-space: nowrap; }
 #msg { position: absolute; bottom: 30px; left: 8px; background: rgba(255,255,255,.9); padding: 2px 6px; font-size: 11px; z-index: 2; }
 .pop { font: 12px sans-serif; line-height: 1.5; }
-.satlab { position: absolute; z-index: 1; pointer-events: none; color: #fff; font: 11px sans-serif; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+#satcv { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; }
 #legend { position: absolute; top: 44px; left: 8px; z-index: 2; background: rgba(255,255,255,.92); padding: 5px 8px; font: 11px sans-serif; line-height: 1.6; border-radius: 3px; }
 #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid #fff; }
 .fplab { background: rgba(0,0,0,.75); color: #fff; font: 11px sans-serif; padding: 2px 6px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
 </style></head>
 <body>
 <div id="map"></div>
+<canvas id="satcv"></canvas>
 <div id="bar">
   <button id="rot" class="on" aria-pressed="true">Rotate</button>
   <button id="sat" class="on" aria-pressed="true">Satellites</button>
@@ -337,8 +346,9 @@ function stats() {
   try { inView = map.getLayer("pts") ? map.queryRenderedFeatures({ layers: ["pts"] }).length : 0; } catch (e) {}
   window.earthStats = { source: D.x.length, inView: inView };
   lg.innerHTML = CFG.legend.map(l => "<div><i style='background:" + l[1] + "'></i>" + l[2] + "</div>").join("") +
+    (CFG.live_note ? "<div style='color:#444;max-width:260px;line-height:1.35;margin:2px 0'>" + CFG.live_note + "</div>" : "") +
     (CFG.any_untrained ? "<div style='color:#a05a00'>Some detections: " + CFG.untrained + "</div>" : "") +
-    (satOn ? SATS.map(q => "<div><i style='background:" + q.color + "'></i>" + q.name + "</div>").join("") +
+    (satOn ? SATS.map(q => "<div><i style='background:" + q.color + "'></i>" + CFG.sat_notes[q.name] + "</div>").join("") +
       "<div style='color:#666'>Illustrative orbits, not real positions</div>" : "") +
     "<div style='color:#666'>In source " + D.x.length.toLocaleString() + ", in view " + inView.toLocaleString() + "</div>";
 }
@@ -353,7 +363,6 @@ function ensure() {
   try {
     if (mode === "map") map.setProjection({ type: "globe" });
     installPoints();
-    installSats();
     drawSel();                                       // a selection survives a basemap change
     ready = true;
     stats();
@@ -384,11 +393,14 @@ const cv = map.getCanvas();
 document.getElementById("rot").onclick = () => setSpin(!spin);
 
 // Illustrative satellites: a circular sun synchronous orbit (inclination 98.7 degrees, period 101 minutes),
-// three phases, run 60 times faster than real time. One small geojson source, updated about every 60 ms.
-const SATS = [{ name: "S-NPP", color: "#ffd23f", phase: 0 }, { name: "NOAA-20", color: "#00e5ff", phase: 120 },
-              { name: "NOAA-21", color: "#ff7ad9", phase: 240 }];
+// three phases, run 60 times faster than real time. Everything is drawn on one small canvas over the map every
+// frame (no map source): a faint orbit line, a fading ground track, a satellite icon turned to its direction of
+// travel and a thin name. A satellite on the far side of the globe is not drawn.
+const SATS = [{ name: "S-NPP", color: "#ffd23f", phase: 0, active: false },
+              { name: "NOAA-20", color: "#00e5ff", phase: 120, active: true },
+              { name: "NOAA-21", color: "#ff7ad9", phase: 240, active: true }];
 const INC = 98.7 * Math.PI / 180, PERIOD = 101 * 60, SPEEDUP = 60, EARTH_RAD_S = 2 * Math.PI / 86164;
-const TRAIL_POINTS = 36, TRAIL_STEP = 30;
+const TRAIL_POINTS = 30, TRAIL_STEP = 36, ORBIT_POINTS = 72, ICON = 28;
 function satLonLat(T, phase) {
   const u = 2 * Math.PI * T / PERIOD + phase * Math.PI / 180;
   const lat = Math.asin(Math.sin(INC) * Math.sin(u));
@@ -396,69 +408,107 @@ function satLonLat(T, phase) {
   lon = ((lon * 180 / Math.PI + 540) % 360 + 360) % 360 - 180;
   return [lon, lat * 180 / Math.PI];
 }
-function satData(T) {
-  const f = [];
-  SATS.forEach(q => {
-    let prev = null;
-    for (let k = TRAIL_POINTS; k >= 0; k--) {
-      const p = satLonLat(T - k * TRAIL_STEP, q.phase);
-      if (prev && Math.abs(p[0] - prev[0]) < 180)
-        f.push({ type: "Feature", properties: { kind: "trail", c: q.color, a: 0.9 * (1 - k / TRAIL_POINTS) },
-                 geometry: { type: "LineString", coordinates: [prev, p] } });
-      prev = p;
+// A point is on the near side when it is within the visible cap around the map centre.
+function nearSide(p) {
+  const c = map.getCenter(), rad = Math.PI / 180;
+  const dot = Math.sin(c.lat * rad) * Math.sin(p[1] * rad) + Math.cos(c.lat * rad) * Math.cos(p[1] * rad) * Math.cos((p[0] - c.lng) * rad);
+  return dot > Math.max(0.02, 0.3 - 0.06 * map.getZoom());
+}
+// The icon is drawn once per colour: a small body, two solar panels, a short antenna and a dish, pointing along +x.
+function makeSprite(color) {
+  const S = 64, cv = document.createElement("canvas");
+  cv.width = cv.height = S;
+  const g = cv.getContext("2d");
+  const glow = g.createRadialGradient(32, 32, 4, 32, 32, 31);
+  glow.addColorStop(0, color + "88");
+  glow.addColorStop(1, color + "00");
+  g.fillStyle = glow;
+  g.beginPath(); g.arc(32, 32, 31, 0, 6.2832); g.fill();
+  [[2, 25], [39, 62]].forEach(pn => {                          // solar panels, one on each side of the body
+    g.fillStyle = "#1d4f9f"; g.fillRect(24, pn[0], 16, pn[1] - pn[0]);
+    g.strokeStyle = "#bcd5ff"; g.lineWidth = 1.2;
+    g.strokeRect(24.5, pn[0] + 0.5, 15, pn[1] - pn[0] - 1);
+    for (let y = pn[0] + 6; y < pn[1] - 2; y += 6) { g.beginPath(); g.moveTo(24, y); g.lineTo(40, y); g.stroke(); }
+    g.beginPath(); g.moveTo(32, pn[0]); g.lineTo(32, pn[1]); g.stroke();
+  });
+  g.fillStyle = "#e4e8ee"; g.fillRect(20, 24, 24, 16);        // body
+  g.fillStyle = "#d4a72c"; g.fillRect(20, 24, 6, 16);         // foil band
+  g.strokeStyle = "#ffffff"; g.lineWidth = 1.6; g.strokeRect(20, 24, 24, 16);
+  g.strokeStyle = "#ffffff"; g.lineWidth = 2;                  // short antenna at the front
+  g.beginPath(); g.moveTo(44, 32); g.lineTo(58, 32); g.stroke();
+  g.fillStyle = "#ffffff"; g.beginPath(); g.arc(59, 32, 2.6, 0, 6.2832); g.fill();
+  g.fillStyle = color;                                          // dish at the back
+  g.beginPath(); g.moveTo(20, 32); g.lineTo(11, 24); g.quadraticCurveTo(5, 32, 11, 40); g.closePath(); g.fill();
+  g.strokeStyle = "#ffffff"; g.lineWidth = 1.2; g.stroke();
+  return cv;
+}
+const sprites = SATS.map(q => makeSprite(q.color));
+const satCv = document.getElementById("satcv");
+const satCtx = satCv.getContext("2d");
+function sizeCanvas() {
+  const m = document.getElementById("map"), dpr = window.devicePixelRatio || 1;
+  satCv.style.width = m.clientWidth + "px"; satCv.style.height = m.clientHeight + "px";
+  satCv.width = Math.round(m.clientWidth * dpr); satCv.height = Math.round(m.clientHeight * dpr);
+  satCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+sizeCanvas();
+window.addEventListener("resize", sizeCanvas);
+map.on("resize", sizeCanvas);
+// Draws a polyline of ground points. A segment is skipped when either end is on the far side.
+function trace(points, color, alphaOf, width) {
+  satCtx.lineWidth = width; satCtx.strokeStyle = color; satCtx.lineCap = "round";
+  let prev = null;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i], ok = nearSide(p);
+    const xy = ok ? map.project(p) : null;
+    if (prev && xy) {
+      satCtx.globalAlpha = alphaOf(i / (points.length - 1));
+      satCtx.beginPath(); satCtx.moveTo(prev.x, prev.y); satCtx.lineTo(xy.x, xy.y); satCtx.stroke();
     }
-    f.push({ type: "Feature", properties: { kind: "dot", c: q.color, name: q.name }, geometry: { type: "Point", coordinates: prev } });
-  });
-  return { type: "FeatureCollection", features: f };
+    prev = xy;
+  }
+  satCtx.globalAlpha = 1;
 }
-function installSats() {
-  addSrc("sats", { type: "geojson", data: satData(performance.now() / 1000 * SPEEDUP) });
-  const vis = satOn ? "visible" : "none";
-  addLay({ id: "sat-trail", type: "line", source: "sats", filter: ["==", ["get", "kind"], "trail"],
-           layout: { visibility: vis, "line-cap": "round" }, paint: { "line-color": ["get", "c"], "line-opacity": ["get", "a"], "line-width": 2.2 } });
-  addLay({ id: "sat-dot", type: "circle", source: "sats", filter: ["==", ["get", "kind"], "dot"],
-           layout: { visibility: vis }, paint: { "circle-color": ["get", "c"], "circle-radius": 5.5, "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5 } });
-}
-// Names are plain page elements placed over the dots, so no map font has to load.
-const satLabels = SATS.map(q => {
-  const e = document.createElement("div");
-  e.className = "satlab";
-  e.textContent = q.name;
-  e.style.display = "none";
-  document.body.appendChild(e);
-  return e;
-});
-let satPos = null, satPending = null;
-function placeLabels() {
-  satLabels.forEach((e, i) => {
-    if (!satOn || !satPos) { e.style.display = "none"; return; }
-    const c = map.getCenter(), p = satPos[i];
-    const rad = Math.PI / 180;
-    const dot = Math.sin(c.lat * rad) * Math.sin(p[1] * rad) + Math.cos(c.lat * rad) * Math.cos(p[1] * rad) * Math.cos((p[0] - c.lng) * rad);
-    if (dot < 0.05) { e.style.display = "none"; return; }        // behind the globe
-    const xy = map.project(p);
-    e.style.display = "block";
-    e.style.left = (xy.x + 9) + "px";
-    e.style.top = (xy.y - 7) + "px";
+function drawSats(T) {
+  satCtx.clearRect(0, 0, satCv.clientWidth, satCv.clientHeight);
+  const info = [];
+  SATS.forEach((q, i) => {
+    const pos = satLonLat(T, q.phase), ok = nearSide(pos);
+    const orbit = [], trail = [];
+    for (let k = 0; k <= ORBIT_POINTS; k++) orbit.push(satLonLat(T + (k / ORBIT_POINTS - 0.5) * PERIOD, q.phase));
+    for (let k = TRAIL_POINTS; k >= 0; k--) trail.push(satLonLat(T - k * TRAIL_STEP, q.phase));
+    trace(orbit, q.color, () => 0.22, 1);
+    trace(trail, q.color, f => 0.9 * f * f, 2.4);
+    if (!ok) { info.push({ name: q.name, visible: false }); return; }
+    const a = map.project(pos), b = map.project(satLonLat(T + 4, q.phase));
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    satCtx.save();
+    satCtx.globalAlpha = q.active ? 1 : 0.55;
+    satCtx.translate(a.x, a.y); satCtx.rotate(ang);
+    satCtx.drawImage(sprites[i], -ICON / 2, -ICON / 2, ICON, ICON);
+    satCtx.restore();
+    satCtx.save();
+    satCtx.globalAlpha = q.active ? 1 : 0.7;
+    satCtx.font = "300 11px sans-serif"; satCtx.textAlign = "center"; satCtx.textBaseline = "top";
+    satCtx.lineWidth = 3; satCtx.strokeStyle = "rgba(0,0,0,0.7)"; satCtx.strokeText(q.name, a.x, a.y + ICON / 2 + 1);
+    satCtx.fillStyle = "#ffffff"; satCtx.fillText(q.name, a.x, a.y + ICON / 2 + 1);
+    satCtx.restore();
+    info.push({ name: q.name, visible: true, x: a.x, y: a.y, angle: ang });
   });
+  window.earthSats = info;
 }
 function setSats(on) {
   satOn = on;
   const b = document.getElementById("sat");
   b.classList.toggle("on", on);
   b.setAttribute("aria-pressed", on ? "true" : "false");
-  ["sat-trail", "sat-dot"].forEach(id => { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); });
-  placeLabels();
+  if (!on) { satCtx.clearRect(0, 0, satCv.clientWidth, satCv.clientHeight); window.earthSats = []; }
   try { stats(); } catch (e) {}
 }
 document.getElementById("sat").onclick = () => setSats(!satOn);
 setSats(satOn);
 
-// The next update waits until the map has taken the previous one, so a slow device is never flooded.
-let last = performance.now(), lastSat = 0, satBusy = false;
-let satLoaded = false;
-map.on("sourcedata", (e) => { if (e.sourceId === "sats" && e.isSourceLoaded) satLoaded = true; });
-map.on("render", () => { if (satBusy && satLoaded) { satBusy = false; satPos = satPending; } });             // taken by the map and drawn once
+let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
@@ -474,17 +524,7 @@ function frame(now) {
       map.jumpTo({ center: [c.lng + SPIN_DEG_PER_S * dt, c.lat] });
     }
   }
-  if (satBusy && now - lastSat > 2500) satBusy = false;               // never stall on a lost event
-  if (satOn && ready && !satBusy && now - lastSat > 100) {
-    const src = map.getSource("sats");
-    if (src) {
-      lastSat = now; satBusy = true; satLoaded = false;
-      const T = now / 1000 * SPEEDUP;
-      src.setData(satData(T));
-      satPending = SATS.map(q => satLonLat(T, q.phase));
-    }
-  }
-  placeLabels();
+  if (satOn && ready) drawSats(now / 1000 * SPEEDUP);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
