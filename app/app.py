@@ -735,6 +735,7 @@ def earth_body(src, archive, tier, bundle):
 
     show = st.radio("Show", earth.SHOW[:2] if is_live else earth.SHOW, index=1, horizontal=True,
                     key=f"earth_show_{suffix}")
+    st.caption(earth.SHOW_HELP)
     st.caption("In Model prediction the Band selector decides fire, static or uncertain. The sidebar threshold "
                "only affects the Map tab and the Errors only view.")
     if is_live:
@@ -776,7 +777,7 @@ def earth_body(src, archive, tier, bundle):
         sig = "|".join([src, str(region)] + [str(st.session_state.get(f"{prefix}_{n}"))
                                              for n in ("continent", "country", "province", "city")])
         page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
-                          show, sig, demo, three_way=bool(band))
+                          show, sig, demo, three_way=bool(band), live_source=is_live)
         components.html(page, height=700)
 
     m = st.columns(5 if band else 4)

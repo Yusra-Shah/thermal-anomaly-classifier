@@ -442,6 +442,8 @@ def test_app_store(tmp):
     caps = [c.value for c in at.caption]
     assert any("Live store, last ingest" in c and "Live results are unvalidated" in c for c in caps), caps
     assert any("reads the store again every 10 minutes" in c for c in caps)
+    from src import earth as earth_module
+    assert earth_module.SHOW_HELP in caps, caps                                     # the plain language help line
     win = store[store["timestamp"] >= now - pd.Timedelta(hours=24)]
     n20, n21 = (int((win["sensor"] == s).sum()) for s in ("NOAA-20", "NOAA-21"))
     fresh = [c for c in caps if c.startswith("Newest detection")]
