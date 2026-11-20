@@ -36,6 +36,7 @@ import re
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -61,7 +62,16 @@ SCORE_COLS = ["p_instant", "pc_instant", "label_instant", "instant_default", "in
               "p_history", "pc_history", "label_history", "history_default", "history_strict"]
 
 
+STORE_ENV = "FIRE_STORE_PATH"
+
+
 def store_path():
+    """The one place the store path comes from: FIRE_STORE_PATH when it is set (for example
+    data/dev/store.parquet for the development store, relative to the project root), else the live store."""
+    custom = os.environ.get(STORE_ENV, "").strip()
+    if custom:
+        p = Path(custom)
+        return p if p.is_absolute() else live.ROOT / p
     return live.LIVE_DIR / "store.parquet"
 
 
@@ -188,13 +198,14 @@ def store_info(path=None):
     return meta.num_rows, (pd.Timestamp(last) if last is not None else None)
 
 
-def read_recent(path=None, since=None, columns=None, sensor=None, region=None, regions=None):
+def read_recent(path=None, since=None, columns=None, sensor=None, region=None, regions=None, where=None):
     """Rows of the store since a time, optionally of one sensor and one or more regions. The row groups are
-    time ordered, so old data is skipped. Returns None when there is no store."""
+    time ordered, so old data is skipped. where adds (column, operator, value) filters, for example a
+    latitude and longitude box, applied while reading. Returns None when there is no store."""
     path = path or store_path()
     if not path.exists():
         return None
-    filt = []
+    filt = list(where or [])
     if since is not None:
         filt.append(("timestamp", ">=", pd.Timestamp(since)))
     if sensor:
@@ -203,7 +214,61 @@ def read_recent(path=None, since=None, columns=None, sensor=None, region=None, r
         filt.append(("region", "==", region))
     if regions:
         filt.append(("region", "in", list(regions)))
-    return pd.read_parquet(path, columns=columns, filters=filt or None)
+    if not filt:
+        return pd.read_parquet(path, columns=columns)
+    try:
+        return pd.read_parquet(path, columns=columns, filters=filt)
+    except (ImportError, ValueError) as e:
+        if "dataset" not in str(e):
+            raise
+    return read_row_groups(path, columns, filt)       # the filtered reader of pyarrow is not available here
+
+
+_OPS = {">=": lambda s, v: s >= v, "<=": lambda s, v: s <= v, ">": lambda s, v: s > v, "<": lambda s, v: s < v,
+        "==": lambda s, v: s == v, "!=": lambda s, v: s != v, "in": lambda s, v: s.isin(list(v))}
+
+
+def _group_may_match(rg, names, filt):
+    """False when the min and max of a row group show that no row can pass a filter."""
+    for col, op, val in filt:
+        if col not in names or op not in (">=", "<=", ">", "<", "=="):
+            continue
+        st = rg.column(names.index(col)).statistics
+        if st is None or not st.has_min_max:
+            continue
+        try:
+            lo, hi = st.min, st.max
+            if isinstance(val, pd.Timestamp):
+                lo, hi = pd.Timestamp(lo), pd.Timestamp(hi)
+            if (op in (">=", ">") and hi < val) or (op in ("<=", "<") and lo > val) or \
+               (op == "==" and (val < lo or val > hi)):
+                return False
+        except TypeError:
+            continue
+    return True
+
+
+def read_row_groups(path, columns, filt):
+    """Filtered read without the pyarrow dataset module: one row group at a time, row groups that cannot match
+    are skipped by their statistics, so memory stays bounded by one row group and the matching rows."""
+    import pyarrow.parquet as pq
+    pf = pq.ParquetFile(path)
+    names = pf.schema_arrow.names
+    keep = list(columns) if columns else names
+    need = list(dict.fromkeys(keep + [c for c, _, _ in filt]))
+    parts = []
+    for i in range(pf.metadata.num_row_groups):
+        if not _group_may_match(pf.metadata.row_group(i), pf.metadata.schema.to_arrow_schema().names, filt):
+            continue
+        df = pf.read_row_group(i, columns=need).to_pandas()
+        mask = np.ones(len(df), dtype=bool)
+        for col, op, val in filt:
+            mask &= _OPS[op](df[col], val).to_numpy(dtype=bool)
+        if mask.any():
+            parts.append(df.loc[mask, keep])
+    if not parts:
+        return pf.schema_arrow.empty_table().select(keep).to_pandas()
+    return pd.concat(parts, ignore_index=True)
 
 
 def standardize(raw, sensor, region):

@@ -29,11 +29,45 @@ LEGENDS = {
 }
 
 
-def legend(show, three_way=False):
-    """Legend entries for a Show option. The prediction view gets an uncertain entry when a band is used."""
+FOCUS = ["Fires", "Static sources", "Both"]
+FOCUS_VIEWS = ("Model prediction", "Ground truth")      # the views where the Fires or Static selector applies
+
+
+def focus_codes(show, focus, include_uncertain=True):
+    """Category codes (see LEGENDS) kept by the Fires, Static sources or Both selector, or None for all.
+
+    Fires keeps predicted fire (NASA fire in Ground truth) and, with include_uncertain, the uncertain
+    points, so hedged calls are not hidden silently. Static sources keeps predicted static (NASA static
+    in Ground truth). Raw detections and Errors only are not changed."""
+    if show not in FOCUS_VIEWS or focus == "Both":
+        return None
+    if focus == "Fires":
+        return {0, 4} if include_uncertain else {0}
+    return {1}
+
+
+def apply_focus(df, kinds, codes):
+    """Rows of df and their codes that are in codes (None keeps everything)."""
+    if codes is None:
+        return df, kinds
+    keep = np.isin(kinds, sorted(codes))
+    return df[keep], kinds[keep]
+
+
+def legend(show, three_way=False, codes=None, kinds=None):
+    """Legend entries for a Show option. The prediction view gets an uncertain entry when a band is used.
+
+    codes keeps only the entries of the Fires or Static selection. With kinds (the code per drawn row,
+    before the point cap) each label carries its count."""
     entries = [list(e) for e in LEGENDS[show]]
     if three_way and show == "Model prediction":
         entries.append([4, COLORS["uncertain"], "Uncertain (needs investigation)"])
+    if codes is not None:
+        entries = [e for e in entries if e[0] in codes] or entries[:1]
+    if kinds is not None:
+        kinds = np.asarray(kinds)
+        for e in entries:
+            e[2] = f"{e[2]} ({int((kinds == e[0]).sum()):,})"
     return entries
 
 
@@ -78,13 +112,25 @@ def payload(df, kinds, band=None, cap=MAX_POINTS):
     nasa = d["is_static"].astype(int).tolist() if "is_static" in d else [-1] * len(d)
     untrained = ((~d["region"].astype(str).isin(live.TRAINED)).astype(int).tolist() if "region" in d else [0] * len(d))
     when = d["timestamp"].dt.strftime("%H:%M").tolist() if "timestamp" in d else [""] * len(d)
+    # pixel size in km for the click footprint; the archive files have no scan and track, the page then
+    # uses the nominal 375 m pixel and says so
+    # sensor per point (live), so a click names its detection: sensor, position, date and time
+    if "sensor" in d:
+        sc, sc_names = pd.factorize(d["sensor"].astype(str))
+        px_sensor = {"s": sc.tolist(), "sn": list(sc_names)}
+    else:
+        px_sensor = {"s": [], "sn": []}
+    has_px = "scan" in d and "track" in d
+    px = ({"sc": d["scan"].astype(float).round(3).tolist(), "tr": d["track"].astype(float).round(3).tolist()}
+          if has_px else {"sc": [], "tr": []})
     data = {
-        "x": d["longitude"].round(3).tolist(), "y": d["latitude"].round(3).tolist(),
-        "p": d["p_static"].round(3).tolist(), "c": d["pred_static"].astype(int).tolist(),
+        # float32 columns are widened first, or the rounded values reach the page as 0.12800000607967377
+        "x": d["longitude"].astype(float).round(3).tolist(), "y": d["latitude"].astype(float).round(3).tolist(),
+        "p": d["p_static"].astype(float).round(3).tolist(), "c": d["pred_static"].astype(int).tolist(),
         "k": d["_k"].astype(int).tolist(), "n": nasa, "dec": [int(x) for x in dec],
-        "t": d["bright_ti4"].round(1).tolist(), "f": d["frp"].round(1).tolist(),
+        "t": d["bright_ti4"].astype(float).round(1).tolist(), "f": d["frp"].astype(float).round(1).tolist(),
         "d": dt.tolist(), "dn": list(dt_names), "u": untrained, "tm": when, "g": cc.tolist(),
-        "gn": [geo.country_name(c) for c in cc_names], "a": pv.tolist(), "an": list(pv_names)}
+        "gn": [geo.country_name(c) for c in cc_names], "a": pv.tolist(), "an": list(pv_names), **px, **px_sensor}
     note = (f"Showing a random sample of {len(d):,} of {total:,} detections." if total > cap
             else f"Showing all {total:,} detections.")
     return data, note
@@ -110,9 +156,9 @@ def outlines(cc, province, df=None):
     return out
 
 
-def html(data, box, shapes, show, sig, demo=False, height=700, three_way=False):
+def html(data, box, shapes, show, sig, demo=False, height=700, three_way=False, codes=None, kinds=None):
     cfg = {"data": data, "box": box, "shapes": shapes, "lines": geo.country_lines(), "demo": demo,
-           "legend": legend(show, three_way), "sig": sig, "untrained": live.UNTRAINED_NOTE,
+           "legend": legend(show, three_way, codes, kinds), "sig": sig, "untrained": live.UNTRAINED_NOTE,
            "any_untrained": any(data.get("u", []))}
     page = (TEMPLATE.replace("__VER__", MAPLIBRE).replace("__HEIGHT__", str(height - 24))
             .replace("__ATTR__", ATTRIBUTION).replace("__CFG__", json.dumps(cfg, separators=(",", ":"))))
@@ -146,6 +192,7 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
 .satlab { position: absolute; z-index: 1; pointer-events: none; color: #fff; font: 11px sans-serif; text-shadow: 0 0 3px #000, 0 0 3px #000; }
 #legend { position: absolute; top: 44px; left: 8px; z-index: 2; background: rgba(255,255,255,.92); padding: 5px 8px; font: 11px sans-serif; line-height: 1.6; border-radius: 3px; }
 #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1px solid #fff; }
+.fplab { background: rgba(0,0,0,.75); color: #fff; font: 11px sans-serif; padding: 2px 6px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
 </style></head>
 <body>
 <div id="map"></div>
@@ -154,6 +201,7 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
   <button id="sat" class="on" aria-pressed="true">Satellites</button>
   <button id="base">Basemap: Satellite</button>
   <button id="tilt">Tilt 3D</button>
+  <button id="back" style="display:none" title="Return to the earlier view (or press Escape)">Back</button>
 </div>
 <div id="msg" style="display:none"></div>
 <div id="legend"></div>
@@ -165,10 +213,16 @@ const SAT = {
   version: 8,
   projection: { type: "globe" },
   sources: {
-    img: { type: "raster", tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 18 },
+    // capped at 17: zoom 18 tile requests timed out in a test, which left the zoomed view black; the map
+    // stretches the zoom 17 tiles beyond that
+    img: { type: "raster", tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 17 },
+    // the same imagery capped at zoom 12 and stretched, under the detailed layer, so places without
+    // detailed tiles show coarse imagery instead of black when a detection is zoomed in
+    imglo: { type: "raster", tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 12 },
     lab: { type: "raster", tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 18 }
   },
   layers: [
+    { id: "imglo", type: "raster", source: "imglo", minzoom: 13 },
     { id: "img", type: "raster", source: "img" },
     { id: "lab", type: "raster", source: "lab" }
   ]
@@ -193,13 +247,16 @@ const map = new maplibregl.Map({
 if (mode === "map") document.getElementById("base").textContent = "Basemap: Map";
 setInterval(() => {
   try {
-    sessionStorage.setItem(CAM, JSON.stringify({ c: map.getCenter().toArray(), z: map.getZoom(), p: map.getPitch(),
-      b: map.getBearing(), mode: mode, spin: spin, sat: satOn }));
+    // while a detection is selected, keep the view from before the click, so a reload does not stay zoomed in
+    const v = sel ? sel.prev : { center: map.getCenter().toArray(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() };
+    sessionStorage.setItem(CAM, JSON.stringify({ c: v.center, z: v.zoom, p: v.pitch, b: v.bearing,
+      mode: mode, spin: spin, sat: satOn }));
   } catch (e) {}
 }, 1000);
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 window.earthMap = map;
-window.earthState = { spinning: () => spin, mode: () => mode, satellites: () => satOn, easing: () => easing };
+window.earthState = { spinning: () => spin, mode: () => mode, satellites: () => satOn, easing: () => easing,
+                      selected: () => (sel ? sel.i : null) };
 
 function points() {
   const f = [];
@@ -297,6 +354,7 @@ function ensure() {
     if (mode === "map") map.setProjection({ type: "globe" });
     installPoints();
     installSats();
+    drawSel();                                       // a selection survives a basemap change
     ready = true;
     stats();
     scheduleExtras();
@@ -456,17 +514,111 @@ document.getElementById("tilt").onclick = (ev) => {
   ev.target.classList.toggle("on", up);
 };
 
-map.on("click", (e) => {
-  const r = 8, hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ["pts"] });
-  if (!hits.length) return;
-  const i = hits[0].properties.i;
+// Click a detection: fly in, draw the pixel footprint and highlight the point. The footprint is an
+// approximation: a rectangle of scan (east to west) by track (north to south) kilometres, axis aligned and
+// centred on the reported point. Escape, a click elsewhere or closing the popup returns the earlier view.
+const NOMINAL_KM = 0.375, SEL_MAX_ZOOM = 18, SEL_MIN_ZOOM = 15, KM_PER_DEG = 111.32;
+let sel = null, popup = null, fpMarker = null;
+function pixelKm(i) {
+  const has = D.sc && i < D.sc.length && D.sc[i] > 0 && D.tr[i] > 0;
+  return { scan: has ? D.sc[i] : NOMINAL_KM, track: has ? D.tr[i] : NOMINAL_KM, nominal: !has };
+}
+function footprint(lon, lat, scanKm, trackKm) {
+  const dLat = trackKm / 2 / KM_PER_DEG;
+  const dLon = scanKm / 2 / (KM_PER_DEG * Math.max(Math.cos(lat * Math.PI / 180), 0.01));
+  return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[lon - dLon, lat - dLat],
+    [lon + dLon, lat - dLat], [lon + dLon, lat + dLat], [lon - dLon, lat + dLat], [lon - dLon, lat - dLat]]] } };
+}
+function pixelLabel(px) {
+  const s = Math.round(px.scan * 1000), t = Math.round(px.track * 1000);
+  const size = Math.abs(s - t) <= 5 ? s + " m pixel" : s + " m by " + t + " m pixel";
+  return size + ", " + (px.scan * px.track).toFixed(2) + " square kilometres" +
+    (px.nominal ? " (nominal size, no scan and track in this data)" : "");
+}
+// The zoom where the footprint fills about 45 percent of the shorter side of the map, within 15 to 18.
+// At these zooms the globe is drawn as a flat map, where one pixel at zoom z covers
+// 78271.517 * cos(latitude) / 2^z metres (512 pixel tiles).
+function fitZoom(lat, km) {
+  const c = map.getCanvas(), dim = Math.min(c.clientWidth, c.clientHeight) || 600;
+  const z = Math.log2(78271.517 * Math.cos(lat * Math.PI / 180) * 0.45 * dim / (km * 1000));
+  return Math.max(SEL_MIN_ZOOM, Math.min(SEL_MAX_ZOOM, z));
+}
+function collection(f) { return { type: "FeatureCollection", features: [f] }; }
+function drawSel() {
+  if (!sel || !map.getLayer("pts")) return;
+  const pt = { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [D.x[sel.i], D.y[sel.i]] } };
+  if (map.getSource("fp")) map.getSource("fp").setData(collection(sel.f)); else addSrc("fp", { type: "geojson", data: collection(sel.f) });
+  if (map.getSource("hl")) map.getSource("hl").setData(collection(pt)); else addSrc("hl", { type: "geojson", data: collection(pt) });
+  addLay({ id: "fpfill", type: "fill", source: "fp", paint: { "fill-color": "#ffcc00", "fill-opacity": 0.12 } });
+  addLay({ id: "fpline", type: "line", source: "fp", paint: { "line-color": "#ffcc00", "line-width": 2 } });
+  addLay({ id: "hl", type: "circle", source: "hl", paint: { "circle-radius": 9, "circle-color": "rgba(0,0,0,0)",
+    "circle-stroke-color": "#ffcc00", "circle-stroke-width": 3 } });
+  const top = sel.f.geometry.coordinates[0][2];
+  if (!fpMarker) {
+    const el = document.createElement("div");
+    el.className = "fplab";
+    el.id = "fplab";
+    fpMarker = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -4] });
+  }
+  fpMarker.getElement().textContent = pixelLabel(sel.px);
+  fpMarker.setLngLat([D.x[sel.i], top[1]]).addTo(map);
+}
+function closePopup() { if (popup) { const p = popup; popup = null; p.remove(); } }
+// Tell the app which detection is selected (null when none), so it can open or close the side panel.
+function postPick(i) {
+  try {
+    const pick = i === null ? null : { lat: D.y[i], lon: D.x[i], date: D.dn[D.d[i]], time: D.tm[i],
+      sensor: D.s && i < D.s.length ? D.sn[D.s[i]] : null };
+    window.parent.postMessage({ type: "earth-pick", sig: CFG.sig, pick: pick }, "*");
+  } catch (e) {}
+}
+function clearSel(back) {
+  if (!sel) return;
+  const prev = sel.prev;
+  sel = null;
+  closePopup();
+  ["hl", "fpline", "fpfill"].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  ["hl", "fp"].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+  if (fpMarker) { fpMarker.remove(); fpMarker = null; }
+  document.getElementById("back").style.display = "none";
+  postPick(null);
+  if (back) map.flyTo({ center: prev.center, zoom: prev.zoom, pitch: prev.pitch, bearing: prev.bearing, duration: 2000, essential: true });
+}
+function selectPoint(i) {
+  const px = pixelKm(i);
+  if (!sel) sel = { prev: { center: map.getCenter().toArray(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() } };
+  sel.i = i; sel.px = px; sel.f = footprint(D.x[i], D.y[i], px.scan, px.track);
+  setSpin(false);
+  drawSel();
+  document.getElementById("back").style.display = "inline-block";
+  map.flyTo({ center: [D.x[i], D.y[i]], zoom: fitZoom(D.y[i], Math.max(px.scan, px.track)), pitch: 0, bearing: 0,
+              duration: 2500, essential: true });
+  note("Back, Escape or a click elsewhere returns the view.");
+  postPick(i);
+}
+function popupHtml(i) {
+  const px = pixelKm(i);
   const nasa = D.n[i] < 0 ? "" : "NASA label: " + (D.n[i] === 1 ? "static" : "fire") + "<br>";
-  const html = "<div class='pop'><b>Decision: " + (D.dec[i] === 1 ? "static heat source" : D.dec[i] === 0 ? "fire" : "uncertain, needs investigation") + "</b><br>" +
-    "Probability of static: " + D.p[i] + "<br>" + nasa + "Brightness (I-4): " + D.t[i] + " K<br>FRP: " + D.f[i] + " MW<br>" +
+  return "<div class='pop'><b>Decision: " + (D.dec[i] === 1 ? "static heat source" : D.dec[i] === 0 ? "predicted fire" : "uncertain, needs investigation") + "</b><br>" +
+    "Model score for static (not calibrated): " + D.p[i] + "<br>" + nasa + "Brightness (I-4): " + D.t[i] + " K<br>FRP: " + D.f[i] + " MW<br>" +
+    "Pixel: " + Math.round(px.scan * 1000) + " m by " + Math.round(px.track * 1000) + " m" + (px.nominal ? " (nominal)" : "") + "<br>" +
     "Date: " + D.dn[D.d[i]] + (D.tm[i] ? " " + D.tm[i] + " UTC" : "") + "<br>Country: " + D.gn[D.g[i]] + "<br>Province: " + D.an[D.a[i]] +
     (D.u[i] ? "<br><b style='color:#a05a00'>" + CFG.untrained.charAt(0).toUpperCase() + CFG.untrained.slice(1) + "</b>" : "") + "</div>";
-  new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
+map.on("click", (e) => {
+  const r = 8, hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ["pts"] });
+  if (!hits.length) { clearSel(true); return; }                 // a click elsewhere returns the view
+  const i = hits[0].properties.i;
+  closePopup();
+  selectPoint(i);
+  // below the point, so the footprint label above it stays visible
+  const p = new maplibregl.Popup({ maxWidth: "260px", offset: 14, closeOnClick: false, anchor: "top" })
+    .setLngLat([D.x[i], D.y[i]]).setHTML(popupHtml(i)).addTo(map);
+  popup = p;
+  p.on("close", () => { if (popup === p) { popup = null; clearSel(true); } });
 });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") clearSel(true); });
+document.getElementById("back").onclick = () => clearSel(true);
 map.on("mouseenter", "pts", () => { cv.style.cursor = "pointer"; });
 map.on("mouseleave", "pts", () => { cv.style.cursor = ""; });
 

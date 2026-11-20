@@ -344,6 +344,63 @@ def test_earth_select():
     print("show helper test passed")
 
 
+def test_earth_focus():
+    """The Fires, Static sources, Both selector: rows kept, uncertain chip, views it ignores, legend counts."""
+    from src import earth
+    df = pd.DataFrame({"pred_static": [1, 1, 0, 0, 1, 0], "is_static": [1, 0, 0, 1, 0, 0]})
+    assert earth.FOCUS[0] == "Fires"                                         # Fires is the default choice
+    kinds = np.array([0, 1, 4, 0, 1, 4])                                     # fire, static, uncertain
+    assert earth.focus_codes("Model prediction", "Fires") == {0, 4}           # uncertain kept by default
+    assert earth.focus_codes("Model prediction", "Fires", include_uncertain=False) == {0}
+    assert earth.focus_codes("Model prediction", "Static sources") == {1}
+    assert earth.focus_codes("Model prediction", "Both") is None
+    for show in ("Raw detections", "Errors only"):                           # the selector does nothing there
+        for f in earth.FOCUS:
+            assert earth.focus_codes(show, f) is None
+    rows, k = earth.apply_focus(df, kinds, {0, 4})
+    assert rows.index.tolist() == [0, 2, 3, 5] and k.tolist() == [0, 4, 0, 4]
+    rows, k = earth.apply_focus(df, kinds, {1})
+    assert rows.index.tolist() == [1, 4]
+    rows, k = earth.apply_focus(df, kinds, None)
+    assert len(rows) == len(df) and k.tolist() == kinds.tolist()
+    # Ground truth uses the NASA type: Fires keeps NASA fire, Static sources keeps NASA static
+    truth_rows, truth_k = earth.select(df, "Ground truth")
+    rows, _ = earth.apply_focus(truth_rows, truth_k, earth.focus_codes("Ground truth", "Static sources"))
+    assert rows["is_static"].tolist() == [1, 1]
+    # the legend follows the selection and counts every drawn row
+    lg = earth.legend("Model prediction", True, {0, 4}, np.array([0, 0, 4]))
+    assert [e[2] for e in lg] == ["Predicted fire (2)", "Uncertain (needs investigation) (1)"]
+    lg = earth.legend("Model prediction", False, {1}, np.array([1, 1, 1]))
+    assert [e[2] for e in lg] == ["Predicted static (3)"]
+    assert len(earth.legend("Model prediction", False)) == 2                # unchanged without a selection
+    print("fire or static selector test passed")
+
+
+def test_earth_footprint():
+    """Click footprint: the page gets the pixel size per point when the data has scan and track, none otherwise,
+    and carries the click, footprint and Escape code."""
+    from src import earth
+    n = 5
+    base = pd.DataFrame({
+        "longitude": np.linspace(70, 71, n), "latitude": np.linspace(30, 31, n), "p_static": np.full(n, 0.1, np.float32),
+        "pred_static": [0, 1, 0, 0, 1], "is_static": [0, 1, 0, 0, 0], "bright_ti4": np.full(n, 330.0, np.float32),
+        "frp": np.full(n, 2.4, np.float32), "cc": ["PK"] * n, "admin1": ["Punjab"] * n,
+        "acq_date": pd.to_datetime(["2025-02-06"] * n)})
+    kinds = np.zeros(n, dtype=int)
+    data, _ = earth.payload(base, kinds)
+    assert data["sc"] == [] and data["tr"] == []                            # archive: nominal pixel in the page
+    assert data["p"][0] == 0.1 and data["t"][0] == 330.0                     # float32 values reach the page rounded
+    live_like = base.assign(scan=np.array([0.39, 0.52, 0.375, 0.8, 0.41], np.float32),
+                            track=np.array([0.36, 0.42, 0.375, 0.65, 0.37], np.float32))
+    data, _ = earth.payload(live_like, kinds)
+    assert data["sc"] == [0.39, 0.52, 0.375, 0.8, 0.41] and data["tr"] == [0.36, 0.42, 0.375, 0.65, 0.37]
+    page = earth.html(data, None, {"sel": None, "provs": None, "prov": None}, "Model prediction", "s")
+    for hook in ("function footprint(", "function pixelLabel(", "square kilometres", "Escape", "fpline", "selected:"):
+        assert hook in page, hook
+    assert earth.MAX_POINTS == 20_000                                        # the cap is unchanged
+    print("click footprint test passed")
+
+
 def test_app_live(tmp):
     """Live source of the Earth tab: notices, key handling, offline, model choice, regions."""
     live.LIVE_DIR = Path(tmp)
@@ -629,6 +686,22 @@ def test_app_earth(tmp):
         got = {}
         if tier == INSTANT_TIER:
             assert at.radio(key="earth_show_a").value == "Model prediction"      # the default view
+            assert at.radio(key="earth_focus_a").value == "Fires"                # the default selection
+            fires = metric(at, "Circles drawn")
+            assert fires <= circles_expected(base)
+            assert "Predicted static (" not in page_html(at)                     # legend follows the selection
+            at.radio(key="earth_focus_a").set_value("Static sources").run()
+            assert not at.exception, at.exception
+            static_html = page_html(at) if metric(at, "Predicted static") else ""
+            if static_html:
+                assert "Predicted fire (" not in static_html and "Predicted static (" in static_html
+            for show in ("Raw detections", "Errors only"):                       # the selector does nothing there
+                at.radio(key="earth_show_a").set_value(show).run()
+                assert at.radio(key="earth_focus_a").proto.disabled
+                assert any(f"Not used in {show}" in c.value for c in at.caption)
+            at.radio(key="earth_show_a").set_value("Model prediction").run()
+            print(f"  selector: fires drawn {fires:,}")
+        at.radio(key="earth_focus_a").set_value("Both").run()                    # every class for the checks below
         for show in earth.SHOW:
             at.radio(key="earth_show_a").set_value(show).run()
             assert not at.exception, (show, at.exception)
@@ -672,6 +745,9 @@ def test_app_earth(tmp):
     assert any("no ground truth on live data" in c.value for c in at.caption)
     assert not any(m.label in ("False static", "False fire", "NASA static") for m in at.metric)
     base = metric(at, "Detections in Earth")
+    assert at.radio(key="earth_focus_l").value == "Fires"                        # the selector applies to live too
+    assert metric(at, "Circles drawn") <= circles_expected(base)
+    at.radio(key="earth_focus_l").set_value("Both").run()
     for show in earth.SHOW[:2]:
         at.radio(key="earth_show_l").set_value(show).run()
         assert not at.exception, at.exception
@@ -710,6 +786,8 @@ def suite_unit(tmp):
     test_leakage_rolling_store(tmp)
     test_geography(tmp)
     test_earth_select()
+    test_earth_focus()
+    test_earth_footprint()
 
 
 SUITES = {"unit": suite_unit, "app_store": test_app_store, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
