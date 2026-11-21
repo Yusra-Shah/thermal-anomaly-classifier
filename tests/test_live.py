@@ -282,9 +282,18 @@ DEMO_NOTICE = ("Demo snapshot: historical 2025 data shifted to look recent, for 
                "This is not current data.")
 
 
-def run_app(tmp, key, setup=None):
+LAND_OFFLINE = (False, "offline test")
+
+
+CONTEXT_OFFLINE = {k: {"unavailable": "offline test"} for k in ("land", "weather", "exposure", "response")}
+
+
+def run_app(tmp, key, setup=None, land=LAND_OFFLINE, context=CONTEXT_OFFLINE):
     from streamlit.testing.v1 import AppTest
     import streamlit as st
+    from src.context import landcover, sections
+    sections.fetch_all = lambda row, hooks=None: dict(context)      # the panel sources never reach the network in tests
+    landcover.reachable = lambda fetch=None: land          # the land cover filter never reaches the network in tests
     st.cache_data.clear()                      # keep memory flat across many AppTest runs
     st.cache_resource.clear()
     live.LIVE_DIR = Path(tmp)
@@ -1007,6 +1016,9 @@ def test_app_drawer(tmp):
     for want in ("Verdict", "Detection", "Place", "Spread and history"):
         assert want in text, want
     assert "Nearest place:" in text and "Country:" not in text
+    for want in ("Land and fuel", "Weather", "People and buildings", "Response"):
+        assert want in text, want
+    assert "not added yet" not in text
     n = at.session_state["earth_close_n_l"] if "earth_close_n_l" in at.session_state else 0
     at.button(key="earth_closebtn_l").click().run()                             # the arrow closes it
     assert not at.exception, [e.value for e in at.exception]
@@ -1015,9 +1027,105 @@ def test_app_drawer(tmp):
     print("detail drawer test passed")
 
 
+def test_app_context(tmp):
+    """The four outside sections of the drawer show their values, sources and the unverified mark."""
+    from src import ingest
+    from tests import fake_feed
+    live.LIVE_DIR = Path(tmp)
+    ingest.run_once("fake", fetch=fake_feed.fetch_factory(fake_feed.masters(10)), sleep=lambda s: None,
+                    log=lambda *a: None, limiter=fake_feed.fast_limiter())
+    store = ingest.read_store()
+    canned = {
+        "land": {"class": "Cropland", "code": 40, "group": "Cropland", "around_1km": "Grassland",
+                 "fuel": "crop fuel: stubble", "pixel_m": 10.0, "source": "ESA WorldCover 2021 v200",
+                 "fetched_at": "2026-01-01T00:00:00Z", "note": "Land cover note."},
+        "weather": {"time": "2026-01-01 10:00:00", "temperature_c": 31.2, "humidity_pct": 22, "wind_kmh": 18.4,
+                    "gust_kmh": 30.0, "wind_from": "NW", "wind_to": "SE", "rain_24h_mm": 0.0, "rain_72h_mm": 1.5,
+                    "source": "Open-Meteo", "fetched_at": "2026-01-01T00:00:00Z", "note": "Weather note."},
+        "exposure": {"population": {"within_1km": 1230, "within_5km": 67510, "cell": 318, "resolution": "about 1 km",
+                                    "source": "WorldPop 2020", "fetched_at": "2026-01-01T00:00:00Z", "note": "Rough."},
+                     "place": {"name": "Baddomalhi", "km": 10.1, "direction": "SE"},
+                     "buildings": {"unavailable": "OpenStreetMap Overpass did not answer (ReadTimeout)"}},
+        "response": {"numbers": {"police": "15", "fire": "16", "ambulance": "1122", "name": "Pakistan",
+                                 "status": "unverified", "note": "x"},
+                     "services": {"Fire station": {"name": "Rescue 1122", "km": 8.2, "direction": "N"},
+                                  "Hospital": {"none": 110}, "Police station": {"unavailable": "x (ReadTimeout)"}},
+                     "source": "OpenStreetMap contributors", "fetched_at": "2026-01-01T00:00:00Z", "note": "Named."}}
+    at = run_app(tmp, None, context=canned)
+    assert not at.exception, [e.value for e in at.exception]
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    row = store[store["timestamp"] >= now - pd.Timedelta(hours=24)].iloc[0]
+    pick = {"lat": round(float(row["latitude"]), 3), "lon": round(float(row["longitude"]), 3),
+            "date": f"{row['acq_date']:%Y-%m-%d}", "time": f"{row['timestamp']:%H:%M}", "sensor": row["sensor"]}
+    at.session_state["earth_sel_l"] = {"pick": pick, "view": at.session_state["earth_view_l"]}
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = " ".join([m.value for m in at.markdown] + [c.value for c in at.caption] + [w.value for w in at.text])
+    for want in ("Land cover at the pixel: Cropland", "Main class within 1 km: Grassland", "crop fuel: stubble",
+                 "blowing toward SE", "Rain in the 24 hours before", "People within 1 km: about 1,230",
+                 "Nearest named place: Baddomalhi, 10.1 km SE", "Buildings within 1 km: unavailable (OpenStreetMap",
+                 "Police 15, Fire 16, Ambulance 1122 (unverified, check locally)",
+                 "Fire station: Rescue 1122, 8.2 km N", "Hospital: none found within about 110 km",
+                 "Police station: unavailable", "Source: Open-Meteo", "Source: WorldPop 2020"):
+        assert want in text, want
+    assert "://" not in text
+    print("panel context test passed")
+
+
+def test_app_land(tmp):
+    """Land cover context filter on the Earth tab: hidden with the reason, shown next to Detections, counts and proxy."""
+    from src import earth
+    from src.context import clusters, landcover
+    build_demo(tmp)
+    at = run_app(tmp, None, lambda a: to_archive(a, full_range=True))
+    assert not at.exception, at.exception
+    assert not [r for r in at.radio if r.key == "earth_lc_a"]
+    assert any("land cover filter is hidden" in c.value and "offline test" in c.value for c in at.caption)
+
+    calls = []
+
+    def fake_classify(lon, lat, scan=None, track=None, **kw):
+        calls.append(len(lon))
+        code = np.where(np.arange(len(lon)) % 3 == 0, 40, np.where(np.arange(len(lon)) % 3 == 1, 10, 50)).astype(np.uint8)
+        return {"code": code, "level": 0, "pixel_m": 10.0, "tiles_read": 3, "tiles_cached": 1, "failed": 0,
+                "headers_read": 1, "source": landcover.SOURCE, "fetched_at": "2026-01-01T00:00:00Z"}
+
+    def fake_flags(lat, lon, day, frp, query):
+        return (np.arange(len(query)) % 2 == 0), 12.5
+    orig = (landcover.classify, clusters.flags)
+    landcover.classify, clusters.flags = fake_classify, fake_flags
+    try:
+        at = run_app(tmp, None, lambda a: to_archive(a, full_range=True), land=(True, ""))
+        assert not at.exception, at.exception
+        r = at.radio(key="earth_lc_a")
+        assert r.label == "Land cover context, not a model" and list(r.options) == LC_OPTIONS_EXPECTED
+        assert r.value == "All land cover" and not calls
+        total = metric(at, "Circles drawn")
+        r.set_value("Burning on cropland").run()
+        assert not at.exception, at.exception
+        text = " ".join(c.value for c in at.caption)
+        assert "Cropland" in text and "Natural land" in text and "About 75 to 80 percent of land cover pixels are correct, so the split is a proxy." in text
+        assert calls and calls[-1] <= earth.MAX_POINTS
+        assert metric(at, "Circles drawn") < total
+        assert "://" not in text
+        at.radio(key="earth_lc_a").set_value("Burning on natural land").run()
+        assert not at.exception, at.exception
+        at.radio(key="earth_lc_a").set_value("Large clusters").run()
+        assert not at.exception, at.exception
+        text = " ".join(c.value for c in at.caption)
+        assert "large cluster" in text and "12.5 MW" in text
+    finally:
+        landcover.classify, clusters.flags = orig
+    print("land cover filter test passed")
+
+
+LC_OPTIONS_EXPECTED = ["All land cover", "Burning on cropland", "Burning on natural land", "Large clusters"]
+
+
 SUITES = {"unit": suite_unit, "app_store": test_app_store, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
           "app_earth": test_app_earth, "app_front": test_app_front, "app_classify": test_app_classify,
-          "app_drawer": test_app_drawer}
+          "app_drawer": test_app_drawer, "app_land": test_app_land,
+          "app_context": test_app_context}
 
 
 def main(names=None):

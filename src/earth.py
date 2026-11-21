@@ -103,14 +103,24 @@ def select(df, show, band=None):
     return df[wrong], np.where(pred[wrong] == 1, 2, 3)
 
 
-def payload(df, kinds, band=None, cap=MAX_POINTS):
+def sample_rows(df, kinds, cap=MAX_POINTS):
+    """The rows that are drawn: all of them, or a random sample of cap rows (the same one payload would take).
+    Returns (rows, their category codes, the number of rows before the sample)."""
+    kinds = np.asarray(kinds)
+    if len(df) <= cap:
+        return df, kinds, len(df)
+    pos = pd.Series(np.arange(len(df))).sample(cap, random_state=0).to_numpy()
+    return df.iloc[pos], kinds[pos], len(df)
+
+
+def payload(df, kinds, band=None, cap=MAX_POINTS, total=None):
     """Compact arrays for at most `cap` points (random sample) and the sample note.
 
-    kinds is the category code per row of df, used for the circle colour.
-    """
-    total = len(df)
+    kinds is the category code per row of df, used for the circle colour. total is the number of rows before a
+    sample taken by sample_rows, so the note can say it."""
+    total = len(df) if total is None else total
     d = df.assign(_k=kinds)
-    if total > cap:
+    if len(d) > cap:
         d = d.sample(cap, random_state=0)
     cc, cc_names = pd.factorize(d["cc"].astype(str))
     pv, pv_names = pd.factorize(d["admin1"].astype(str))
@@ -139,7 +149,7 @@ def payload(df, kinds, band=None, cap=MAX_POINTS):
         "t": d["bright_ti4"].astype(float).round(1).tolist(), "f": d["frp"].astype(float).round(1).tolist(),
         "d": dt.tolist(), "dn": list(dt_names), "u": untrained, "tm": when, "g": cc.tolist(),
         "gn": [geo.country_name(c) for c in cc_names], "a": pv.tolist(), "an": list(pv_names), **px, **px_sensor}
-    note = (f"Showing a random sample of {len(d):,} of {total:,} detections." if total > cap
+    note = (f"Showing a random sample of {len(d):,} of {total:,} detections." if total > len(d)
             else f"Showing all {total:,} detections.")
     return data, note
 
@@ -197,6 +207,7 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
 #bar button { background: #fff; border: 1px solid #bbb; border-radius: 3px; padding: 4px 9px; cursor: pointer; font: 12px sans-serif; }
 #bar button.on { background: #222; color: #fff; box-shadow: inset 0 0 0 2px #ffcc00; }
 #foot { background: #fff; padding: 3px 8px; font-size: 10px; color: #666; height: 18px; overflow: hidden; white-space: nowrap; }
+#imgnote { position: absolute; bottom: 30px; right: 8px; background: rgba(255,255,255,.92); padding: 2px 6px; font: 11px sans-serif; z-index: 2; border-radius: 3px; display: none; }
 #msg { position: absolute; bottom: 30px; left: 8px; background: rgba(255,255,255,.9); padding: 2px 6px; font-size: 11px; z-index: 2; }
 .pop { font: 12px sans-serif; line-height: 1.5; }
 #satcv { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; }
@@ -219,6 +230,7 @@ html, body { margin: 0; background: #0b0f1a; font: 13px sans-serif; color: #444;
   <button id="back" style="display:none" title="Return to the earlier view (or press Escape)">Back</button>
 </div>
 <div id="msg" style="display:none"></div>
+<div id="imgnote"></div>
 <div id="legend"></div>
 <div id="foot">__ATTR__</div>
 <script>
@@ -228,8 +240,8 @@ const SAT = {
   version: 8,
   projection: { type: "globe" },
   sources: {
-    // capped at 17: zoom 18 tile requests timed out in a test, which left the zoomed view black; the map
-    // stretches the zoom 17 tiles beyond that
+    // capped at 17: the imagery server has no tiles beyond zoom 17 in most places (it answers zoom 18 with a grey
+    // "not yet available" tile, or too slowly), and the map itself stops at 17 (SAT_MAX)
     img: { type: "raster", tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 17 },
     // the same imagery capped at zoom 12 and stretched, under the detailed layer, so places without
     // detailed tiles show coarse imagery instead of black when a detection is zoomed in
@@ -260,6 +272,27 @@ const map = new maplibregl.Map({
   pitch: saved ? saved.p : 0, bearing: saved ? saved.b : 0
 });
 if (mode === "map") document.getElementById("base").textContent = "Basemap: Map";
+// The satellite imagery ends at zoom 17: the map does not zoom further on it, and says so. A slow tile shows a
+// loading note instead of a black or half drawn view.
+const SAT_MAX = 17;
+let imgLoading = false, loadTimer = null;
+function setLimits() { map.setMaxZoom(mode === "sat" ? SAT_MAX : 22); imgNote(); }
+function imgNote() {
+  const el = document.getElementById("imgnote");
+  let t = "";
+  if (mode === "sat" && imgLoading) t = "Loading satellite imagery";
+  else if (mode === "sat" && map.getZoom() >= SAT_MAX - 0.05) t = "Maximum zoom: the imagery has no sharper tiles beyond zoom " + SAT_MAX;
+  el.textContent = t;
+  el.style.display = t ? "block" : "none";
+}
+setLimits();
+map.on("sourcedataloading", (e) => {
+  if (e.sourceId !== "img" && e.sourceId !== "imglo") return;
+  if (!loadTimer) loadTimer = setTimeout(() => { imgLoading = true; imgNote(); }, 600);
+});
+map.on("idle", () => { clearTimeout(loadTimer); loadTimer = null; imgLoading = false; imgNote(); });
+map.on("zoomend", imgNote);
+window.earthImgNote = () => document.getElementById("imgnote").textContent;
 setInterval(() => {
   try {
     // while a detection is selected, keep the view from before the click, so a reload does not stay zoomed in
@@ -558,12 +591,14 @@ document.getElementById("base").onclick = (ev) => {
   mode = mode === "sat" ? "map" : "sat";
   ev.target.textContent = "Basemap: " + (mode === "sat" ? "Satellite" : "Map");
   ready = false;
+  setLimits();
   map.setStyle(mode === "sat" ? SAT : VOYAGER, { diff: false });
   if (mode === "map") setTimeout(() => {
     if (!ready) {
       mode = "sat";
       ev.target.textContent = "Basemap: Satellite";
       note("The map style could not be loaded. Showing satellite.");
+      setLimits();
       map.setStyle(SAT, { diff: false });
     }
   }, 20000);
@@ -582,7 +617,7 @@ document.getElementById("tilt").onclick = (ev) => {
 // Click a detection: fly in, draw the pixel footprint and highlight the point. The footprint is an
 // approximation: a rectangle of scan (east to west) by track (north to south) kilometres, axis aligned and
 // centred on the reported point. Escape, a click elsewhere or closing the popup returns the earlier view.
-const NOMINAL_KM = 0.375, SEL_MAX_ZOOM = 18, SEL_MIN_ZOOM = 15, KM_PER_DEG = 111.32;
+const NOMINAL_KM = 0.375, SEL_MAX_ZOOM = 17, SEL_MIN_ZOOM = 15, KM_PER_DEG = 111.32;
 let sel = null, popup = null, fpMarker = null;
 function pixelKm(i) {
   const has = D.sc && i < D.sc.length && D.sc[i] > 0 && D.tr[i] > 0;

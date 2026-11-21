@@ -1,8 +1,9 @@
 """Detail payload of one clicked detection for the Earth panel.
 
 The shape follows section 14 of docs/PROJECT_CONTEXT.md. This module fills the verdict, the detection facts,
-the place and the spread. Land, weather, exposure and response come from outside sources and stay None
-until those modules exist; the panel shows them as unavailable.
+the place and the spread. Land, weather, exposure and response come from outside sources (src/context/land.py, weather.py, people.py,
+response.py): the app fetches them when a detection is clicked and passes them in as extras; a section that was not
+fetched stays None and the panel shows it as unavailable.
 
 Nothing here calls the network. The spread of a live detection is read from the store through
 ingest.read_recent with a time window and a latitude and longitude box, never the whole store. The spread of
@@ -278,7 +279,7 @@ def store_row(sensor, lat, lon, acq_date, acq_time, path=None):
 
 
 # ------------------------------------------------------------------ assembly
-def build(row, *, source, tier, bundle, bands, band, threshold, spread):
+def build(row, *, source, tier, bundle, bands, band, threshold, spread, extras=None):
     """The panel payload of one detection. row is a dict of the detection (an archive row or a full stored
     row). Sections that cannot be made are None."""
     sensor = _text(row.get("sensor")) or "S-NPP"
@@ -303,7 +304,7 @@ def build(row, *, source, tier, bundle, bands, band, threshold, spread):
         "verdict": safe(verdict, row, tier, bundle, bands, band, threshold, region),
         "facts": safe(facts, row, sensor),
         "place": safe(place, row),
-        "land": None, "weather": None, "spread": spread, "exposure": None, "response": None,
+        "spread": spread, **{k: (extras or {}).get(k) for k in ("land", "weather", "exposure", "response")},
         "nasa_label": (("static" if int(row["is_static"]) == 1 else "fire")
                        if row.get("is_static") is not None and not pd.isna(row.get("is_static")) else None),
         "notes": notes,

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src import datainfo, earth, geo, ingest, live, serve, uncertain, updater  # noqa: E402
-from src.context import detail  # noqa: E402
+from src.context import clusters, detail, landcover, sections  # noqa: E402
 from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
 from src.features import add_features  # noqa: E402
@@ -737,8 +737,9 @@ def panel_payload(row, base, kind, band, tier_name):
         spread = detail.spread_from_frame(base, float(row["latitude"]), float(row["longitude"]), t,
                                           cell_days=detail.cell_days_from_frame(base, row.get("cell_id"), t),
                                           source=label)
+    extras = sections.fetch_all(row)                    # land, weather, people and response, on this click only
     return detail.build(row, source=kind, tier=key, bundle=bundle, bands=bands,
-                        band=use_band, threshold=None, spread=spread)
+                        band=use_band, threshold=None, spread=spread, extras=extras)
 
 
 def _v(x, unit="", nd=None):
@@ -764,6 +765,98 @@ def _src(section):
 
 SHOWN = {"fire": "Predicted fire", "static": "Predicted static heat source",
          "uncertain": "Uncertain, needs investigation"}
+
+
+def _un(sec):
+    """True (after writing the reason) when a section is missing or unavailable."""
+    if not sec:
+        st.write("unavailable")
+        return True
+    if "unavailable" in sec:
+        st.write(f"unavailable: {sec['unavailable']}")
+        return True
+    return False
+
+
+def _src2(sec):
+    if sec.get("source"):
+        st.caption(f"Source: {sec['source']}, {_age(sec.get('fetched_at'))}.")
+
+
+NUMBER_LABELS = (("general", "Emergency"), ("police", "Police"), ("fire", "Fire"), ("ambulance", "Ambulance"))
+
+
+def render_context(p):
+    """Land and fuel, Weather, People and buildings and Response, each with its source and age."""
+    st.markdown("**Land and fuel**")
+    sec = p.get("land")
+    if not _un(sec):
+        st.markdown("\n".join([f"- Land cover at the pixel: {sec['class']} ({sec['group']})"] +
+                              ([f"- Main class within 1 km: {sec['around_1km']}"] if sec.get("around_1km") else []) +
+                              ([f"- Fuel reading: {sec['fuel']}"] if sec.get("fuel") else [])))
+        st.caption(sec["note"])
+        _src2(sec)
+
+    st.markdown("**Weather**")
+    sec = p.get("weather")
+    if not _un(sec):
+        wind = (f"{_v(sec['wind_kmh'], ' km/h', 0)} from {sec['wind_from']}, blowing toward {sec['wind_to']}"
+                if sec.get("wind_from") else _v(sec.get("wind_kmh"), " km/h", 0))
+        st.markdown("\n".join([
+            f"- At {sec['time']} UTC (hour of the detection)",
+            f"- Temperature: {_v(sec['temperature_c'], ' C', 1)}, relative humidity: {_v(sec['humidity_pct'], ' %', 0)}",
+            f"- Wind: {wind}, gusts {_v(sec['gust_kmh'], ' km/h', 0)}",
+            f"- Rain in the 24 hours before: {_v(sec['rain_24h_mm'], ' mm', 1)}, in the 72 hours: "
+            f"{_v(sec['rain_72h_mm'], ' mm', 1)}"]))
+        st.caption(sec["note"])
+        _src2(sec)
+
+    st.markdown("**People and buildings**")
+    sec = p.get("exposure")
+    if not _un(sec):
+        pop, pl, bd = sec.get("population"), sec.get("place"), sec.get("buildings")
+        lines = []
+        if pop and "unavailable" not in pop:
+            lines += [f"- People within 1 km: about {pop['within_1km']:,} (within 5 km: about {pop['within_5km']:,}), "
+                      f"resolution {pop['resolution']}"]
+        else:
+            lines += [f"- People: unavailable ({(pop or {}).get('unavailable', 'no answer')})"]
+        lines += ([f"- Nearest named place: {pl['name']}, {pl['km']:g} km {pl['direction']}"] if pl
+                  else ["- Nearest named place: unavailable"])
+        lines += ([f"- Buildings within 1 km: {bd['count']:,}"] if bd and "count" in bd
+                  else [f"- Buildings within 1 km: unavailable ({(bd or {}).get('unavailable', 'no answer')})"])
+        st.markdown("\n".join(lines))
+        if pop and "note" in pop:
+            st.caption(pop["note"])
+        if bd and "note" in bd:
+            st.caption(bd["note"])
+        for part in (pop, bd):
+            if part and part.get("source"):
+                st.caption(f"Source: {part['source']}, {_age(part.get('fetched_at'))}.")
+
+    st.markdown("**Response**")
+    sec = p.get("response")
+    if not _un(sec):
+        nums = sec["numbers"]
+        if "unavailable" in nums:
+            st.write(f"Emergency numbers: unavailable ({nums['unavailable']})")
+        else:
+            bits = [f"{lab} {nums[k]}" for k, lab in NUMBER_LABELS if nums.get(k)]
+            if nums.get("also"):
+                bits.append(f"also {nums['also']}")
+            tag = "" if nums["status"] == "verified" else " (unverified, check locally)"
+            st.write(f"Emergency numbers, {nums['name']}: " + (", ".join(bits) if bits else "none on file") + tag)
+        lines = []
+        for label, res in sec["services"].items():
+            if "unavailable" in res:
+                lines.append(f"- {label}: unavailable ({res['unavailable']})")
+            elif "none" in res:
+                lines.append(f"- {label}: none found within about {res['none']} km")
+            else:
+                lines.append(f"- {label}: {res['name']}, {res['km']:g} km {res['direction']}")
+        st.markdown("\n".join(lines))
+        st.caption(sec["note"])
+        _src2(sec)
 
 
 def render_panel(p):
@@ -831,9 +924,7 @@ def render_panel(p):
     else:
         st.write("unavailable")
 
-    for title in ("Land and fuel", "Weather", "People and buildings", "Response"):
-        st.markdown(f"**{title}**")
-        st.write("unavailable (not added yet)")
+    render_context(p)
 
     st.markdown("**Notes**")
     for n in p.get("notes", []):
@@ -852,7 +943,9 @@ def detail_panel(pick, g, base, kind, bands, band, suffix, tier_name):
     got = st.session_state.get(cache_key)
     if not got or got[0] != ident:
         try:
-            payload = panel_payload(row, base, kind, band, tier_name)
+            with st.spinner("Fetching weather, land cover, population and nearby services (the first click at a "
+                            "place can take up to a minute, the next one uses the disk cache)"):
+                payload = panel_payload(row, base, kind, band, tier_name)
         except Exception as e:
             st.error(f"The details could not be made: {type(e).__name__}")
             return
@@ -994,6 +1087,85 @@ def earth_body(src):
                  in_fragment=is_live and hasattr(st, "fragment"))
 
 
+LC_ALL = "All land cover"
+LC_OPTIONS = [LC_ALL, "Burning on cropland", "Burning on natural land", "Large clusters"]
+LC_PROXY = "About 75 to 80 percent of land cover pixels are correct, so the split is a proxy."
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def land_probe():
+    """(True, "") when WorldCover answers, else (False, exception class). One small request, cached ten minutes."""
+    return landcover.reachable()
+
+
+@st.cache_data(max_entries=8, ttl=3600, show_spinner="Reading land cover for the drawn points (the first time takes a "
+                                                       "while, the next time uses the disk cache)")
+def land_codes(lon, lat, scan, track):
+    """WorldCover class of the drawn points in batches (src/context/landcover.py), or the exception class."""
+    try:
+        return landcover.classify(lon, lat, scan, track)
+    except Exception as e:
+        return {"error": type(e).__name__}
+
+
+@st.cache_data(max_entries=8, show_spinner=False)
+def cluster_flags(lat, lon, day, frp, query):
+    try:
+        flags, thr = clusters.flags(lat, lon, day, frp, query)
+        return {"flags": flags, "frp": thr}
+    except Exception as e:
+        return {"error": type(e).__name__}
+
+
+def land_filter(choice, sampled, kinds_s, g):
+    """Apply the land cover context filter to the drawn rows. Returns (rows, codes, summary). The summary tells what
+    was computed, for the counts under the globe; rows and codes are unchanged when it could not be computed."""
+    n = len(sampled)
+    if choice == "Large clusters":
+        pos = g.index.get_indexer(sampled.index)
+        if (pos < 0).any():
+            return sampled, kinds_s, {"error": "rows not found"}
+        day = pd.to_datetime(g["acq_date"]).dt.normalize().astype("int64").to_numpy() // 86_400_000_000_000
+        res = cluster_flags(g["latitude"].to_numpy(float), g["longitude"].to_numpy(float), day,
+                            g["frp"].to_numpy(float), pos)
+        if "error" in res:
+            return sampled, kinds_s, res
+        keep = res["flags"]
+        return sampled[keep], kinds_s[keep], {"kind": "clusters", "n": n, "in": int(keep.sum()), "frp": res["frp"]}
+    scan = sampled["scan"].to_numpy(float) if "scan" in sampled else None
+    track = sampled["track"].to_numpy(float) if "track" in sampled else None
+    res = land_codes(sampled["longitude"].to_numpy(float), sampled["latitude"].to_numpy(float),
+                     scan if scan is not None else np.full(n, np.nan), track if track is not None else np.full(n, np.nan))
+    if "error" in res:
+        return sampled, kinds_s, res
+    code = res["code"]
+    grp = landcover.groups(code)
+    want = landcover.GROUP_CROP if choice == "Burning on cropland" else landcover.GROUP_NATURAL
+    keep = grp == want
+    counts = landcover.accounting(code)
+    return sampled[keep], kinds_s[keep], {"kind": "classes", "n": n, "counts": counts, "level": res["level"],
+                                          "pixel_m": res["pixel_m"], "read": res["tiles_read"],
+                                          "cached": res["tiles_cached"], "failed": res["failed"]}
+
+
+def land_counts_text(info):
+    """The count per class under the globe, with what was read and the proxy sentence."""
+    if info.get("kind") == "clusters":
+        return (f"Land cover context, not a model. Large clusters: {info['in']:,} of the {info['n']:,} drawn points are in a "
+                f"large cluster (5 or more detections within 2 km, on 2 or more days, FRP at or above "
+                f"{info['frp']:.1f} MW, the 75th percentile of the window). A proxy for a large fire, not a model.")
+    c = info["counts"]
+    parts = ", ".join(f"{landcover.ACCOUNT_NAMES[k]} {c[k]:,}" for k in landcover.ACCOUNT_KEYS)
+    text = (f"Land cover context, not a model. Of the {info['n']:,} drawn points: {parts}. {landcover.SOURCE}, pixels of "
+            f"about {info['pixel_m']:g} m, {info['read']:,} tiles read and {info['cached']:,} from the disk cache. "
+            f"{LC_PROXY}")
+    if c["not_read"]:
+        text += (" Not read means the tile could not be read in this run (the time limit or a failed request), or "
+                 "the footprint has no land cover value (open sea or no data); the next run continues from the disk "
+                 "cache.")
+    return text
+
+
 def close_drawer(suffix, in_fragment):
     """The arrow button: drop the selection and tell the globe page to return to its earlier view."""
     st.session_state[f"earth_sel_{suffix}"] = None
@@ -1022,6 +1194,17 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
                                "static heat source (NASA static in Ground truth). Both: all detections.")
     if not focus_on:
         c_focus.caption(f"Not used in {show}: every detection is drawn.")
+    reach, why = land_probe()
+    lc = LC_ALL
+    if reach:
+        lc = st.radio("Land cover context, not a model", LC_OPTIONS, horizontal=True, key=f"earth_lc_{suffix}",
+                      help="Burning on cropland and on natural land keep the detections of the Detections selection "
+                           "whose majority WorldCover class over the pixel footprint is cropland, or forest, "
+                           "shrubland, grassland, wetland, moss and bare or sparse vegetation. Large clusters keeps "
+                           "detections with 5 or more detections within 2 km on 2 or more days and FRP at or above "
+                           "the 75th percentile of the window.")
+    else:
+        st.caption(f"The land cover filter is hidden: WorldCover could not be reached ({why}).")
     st.caption(earth.SHOW_HELP)
     st.caption("In Model prediction the Band selector decides fire, static or uncertain. The operating point "
                "above sets the label used in Errors only and in the popups.")
@@ -1064,7 +1247,15 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
         g = g.assign(p_cal=uncertain.apply_calibrator(bands["calibrator"], g["p_static"].to_numpy()))
     drawn, kinds = earth.select(g, show, band)
     drawn, kinds = earth.apply_focus(drawn, kinds, codes)          # before the point cap, so counts are complete
-    data, note = earth.payload(drawn, kinds, band, cap=cap)
+    sampled, kinds_s, total = earth.sample_rows(drawn, kinds, cap)
+    lc_info, legend_kinds = None, kinds
+    if lc != LC_ALL and len(sampled):
+        # land cover is read for the drawn points only (at most cap), in batches
+        sampled, kinds_s, lc_info = land_filter(lc, sampled, kinds_s, g)
+        if "error" not in lc_info:
+            legend_kinds = kinds_s
+    drawn = sampled
+    data, note = earth.payload(sampled, kinds_s, band, cap=cap, total=total)
     if drawn.empty:
         st.info("No errors in this selection." if show == "Errors only"
                 else "No detections match this selection.")
@@ -1079,9 +1270,9 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
         sig = "|".join([src, str(region), sig_extra] + [str(st.session_state.get(f"{prefix}_{n}"))
                                                          for n in ("continent", "country", "province", "city")])
         page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
-                          show, sig, demo, three_way=bool(band), codes=codes, kinds=kinds, live_source=is_live,
+                          show, sig, demo, three_way=bool(band), codes=codes, kinds=legend_kinds, live_source=is_live,
                           channel=suffix)
-        view = "|".join([sig, show, focus, str(with_uncertain), str(band and band.get("target"))])
+        view = "|".join([sig, show, focus, lc, str(with_uncertain), str(band and band.get("target"))])
         st.session_state[f"earth_view_{suffix}"] = view            # the key of the selection, read by the tests
         sel = read_pick(suffix, view)
         with st.container(key=f"earth_stage_{suffix}"):
@@ -1094,6 +1285,13 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
                         close_drawer(suffix, in_fragment)
         if pick_component() is None:
             st.caption("The detail drawer needs a Streamlit version with two way components.")
+    if lc_info is not None:
+        if "error" in lc_info:
+            st.caption(f"The land cover filter could not be applied ({lc_info['error']}); every detection is shown.")
+        else:
+            st.caption(land_counts_text(lc_info))
+            if lc != "Large clusters":
+                st.caption("The legend counts are those of the drawn points of the filter.")
 
     m = st.columns(5 if band else 4)
     if band:
