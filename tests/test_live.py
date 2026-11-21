@@ -3,6 +3,7 @@
 Run from the project root:  python -m tests.test_live
 """
 import gc
+import time
 import tempfile
 from pathlib import Path
 
@@ -300,6 +301,8 @@ def run_app(tmp, key, setup=None, land=LAND_OFFLINE, context=CONTEXT_OFFLINE):
     import streamlit as st
     from src.context import landcover, people, sections
     people.warm_many = lambda *a, **k: None                 # no population download in tests
+    from src.context import landtable
+    landtable.reset(Path(tmp) / "landtable.parquet")           # a fresh, empty table in a temporary file
     # the panel sources never reach the network in tests: the real fetcher with canned answers
     sections.start = lambda row, hooks=None, cap=sections.SECTION_CAP_S, with_spread=False: sections.Fetcher(row, hooks={
         "spread": lambda *a, **k: context.get("spread", {"unavailable": "offline test"}),
@@ -1186,9 +1189,11 @@ def test_app_context_pending(tmp):
 
 
 def test_app_land(tmp):
-    """Land cover context filter on the Earth tab: hidden with the reason, shown next to Detections, counts and proxy."""
+    """Land cover context filter on the Earth tab: hidden with the reason; the first use draws the globe at once without
+    the filter and prepares the cells in the background; then the filter, counts and proxy sentence; and band, selector
+    and tier changes read nothing."""
     from src import earth
-    from src.context import clusters, landcover
+    from src.context import clusters, landcover, landtable
     build_demo(tmp)
     at = run_app(tmp, None, lambda a: to_archive(a, full_range=True))
     assert not at.exception, at.exception
@@ -1199,36 +1204,57 @@ def test_app_land(tmp):
 
     def fake_classify(lon, lat, scan=None, track=None, **kw):
         calls.append(len(lon))
-        code = np.where(np.arange(len(lon)) % 3 == 0, 40, np.where(np.arange(len(lon)) % 3 == 1, 10, 50)).astype(np.uint8)
-        return {"code": code, "level": 0, "pixel_m": 10.0, "tiles_read": 3, "tiles_cached": 1, "failed": 0,
-                "headers_read": 1, "source": landcover.SOURCE, "fetched_at": "2026-01-01T00:00:00Z"}
+        time.sleep(0.4)                                       # a slow read: the page must not wait for it
+        ids = landtable.cell_ids(lat, lon)
+        return {"code": np.where(ids % 3 == 0, 40, np.where(ids % 3 == 1, 10, 50)).astype(np.uint8)}
 
     def fake_flags(lat, lon, day, frp, query):
         return (np.arange(len(query)) % 2 == 0), 12.5
-    orig = (landcover.classify, clusters.flags)
+    orig = (landcover.classify, clusters.flags, landtable.MAX_REST_CELLS)
     landcover.classify, clusters.flags = fake_classify, fake_flags
+    landtable.MAX_REST_CELLS = 10 ** 7                          # the whole view is queued, so a new selection reads nothing
     try:
-        at = run_app(tmp, None, lambda a: to_archive(a, full_range=True), land=(True, ""))
+        at = run_app(tmp, None, to_archive, land=(True, ""))                        # the last 7 days of the archive
         assert not at.exception, at.exception
         r = at.radio(key="earth_lc_a")
         assert r.label == "Land cover context, not a model" and list(r.options) == LC_OPTIONS_EXPECTED
         assert r.value == "All land cover" and not calls
         total = metric(at, "Circles drawn")
+        t0 = time.perf_counter()
         r.set_value("Burning on cropland").run()
+        took = time.perf_counter() - t0
         assert not at.exception, at.exception
         text = " ".join(c.value for c in at.caption)
-        assert "Cropland" in text and "Natural land" in text and "About 75 to 80 percent of land cover pixels are correct, so the split is a proxy." in text
-        assert calls and calls[-1] <= earth.MAX_POINTS
-        assert metric(at, "Circles drawn") < total
-        assert "://" not in text
-        at.radio(key="earth_lc_a").set_value("Burning on natural land").run()
+        assert "Land cover is being prepared for" in text and "places" in text        # drawn at once, without the filter
+        assert metric(at, "Circles drawn") == total                                    # every circle is still there
+        assert "split is a proxy" not in text and took < 30
+        table = landtable.get()
+        assert table.wait(120) and table.error is None
+        n_calls = len(calls)
+        assert n_calls >= 1
+        at.run()                                                                       # the poll's rerun
         assert not at.exception, at.exception
+        text = " ".join(c.value for c in at.caption)
+        assert "Cropland" in text and "Natural land" in text and "Built-up" in text
+        assert "About 75 to 80 percent of land cover pixels are correct, so the split is a proxy." in text
+        assert "cells of 0.01 degree" in text and "://" not in text
+        assert 0 < metric(at, "Circles drawn") < total
+        # changing the band, the selector, the tier or the filter reads nothing
+        at.radio(key="earth_band_a").set_value("strict (0.98)").run()
+        at.radio(key="earth_focus_a").set_value("Static sources").run()
+        at.radio(key="earth_focus_a").set_value("Both").run()
+        at.radio(key="earth_lc_a").set_value("Burning on natural land").run()
+        at.radio(key="earth_model").set_value(INSTANT_TIER).run()
+        assert not at.exception, at.exception
+        text = " ".join(c.value for c in at.caption)
+        assert "being prepared" not in text and "split is a proxy" in text
+        assert table.wait(120) and len(calls) == n_calls                               # no new read
         at.radio(key="earth_lc_a").set_value("Large clusters").run()
         assert not at.exception, at.exception
         text = " ".join(c.value for c in at.caption)
         assert "large cluster" in text and "12.5 MW" in text
     finally:
-        landcover.classify, clusters.flags = orig
+        landcover.classify, clusters.flags, landtable.MAX_REST_CELLS = orig
     print("land cover filter test passed")
 
 

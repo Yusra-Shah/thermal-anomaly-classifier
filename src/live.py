@@ -378,14 +378,29 @@ def continent_of(cc, lon=None):
     return CONTINENT.get(cc, "Other")
 
 
+_GEO = {}                      # the geography cache of a file, kept in memory while the file does not change
+
+
+def _geo_cache(path, cols):
+    if not path.exists():
+        return pd.DataFrame(columns=cols)
+    key = (str(path), path.stat().st_mtime_ns)
+    hit = _GEO.get(key)
+    if hit is None:
+        _GEO.clear()
+        hit = _GEO[key] = pd.read_parquet(path)
+    return hit
+
+
 def add_geo(df, cache_path=None):
     """Add country code, admin1, nearest city and continent. Reverse geocoding runs once per cell
     and is cached (default data/live/geo_cache.parquet)."""
     cache_path = cache_path or LIVE_DIR / "geo_cache.parquet"
     cols = ["cell_id", "cc", "admin1", "city"]
-    cache = pd.read_parquet(cache_path) if cache_path.exists() else pd.DataFrame(columns=cols)
+    cache = _geo_cache(cache_path, cols)
     cells = df.drop_duplicates("cell_id")[["cell_id", "latitude", "longitude"]]
-    todo = cells[~cells["cell_id"].isin(cache["cell_id"])]
+    # an object index: isin against an arrow backed string column of hundreds of thousands of cells took about a minute
+    todo = cells[~pd.Index(cells["cell_id"].astype(object)).isin(pd.Index(cache["cell_id"].astype(object)))]
     if len(todo):
         import reverse_geocoder as rg
         hits = rg.search(list(zip(todo["latitude"], todo["longitude"])), mode=1, verbose=False)
@@ -394,6 +409,7 @@ def add_geo(df, cache_path=None):
         cache = pd.concat([cache, new], ignore_index=True)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache.to_parquet(cache_path, index=False)
+        _GEO.clear()
     out = df.merge(cache.drop_duplicates("cell_id"), on="cell_id", how="left")
     out["continent"] = [continent_of(c, lon) for c, lon in zip(out["cc"], out["longitude"])]
     for c in ("cc", "admin1", "city", "continent"):          # categories keep the cached tables small

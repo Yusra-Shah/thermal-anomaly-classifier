@@ -1,6 +1,7 @@
 """Streamlit demo. Run from the project root:  streamlit run app/app.py"""
 import json
 import sys
+import threading
 from datetime import timedelta
 from pathlib import Path
 
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src import datainfo, earth, geo, ingest, live, serve, uncertain, updater  # noqa: E402
-from src.context import clusters, detail, landcover, sections  # noqa: E402
+from src.context import clusters, detail, landcover, landtable, sections  # noqa: E402
 from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
 from src.features import add_features  # noqa: E402
@@ -1152,18 +1153,19 @@ LC_PROXY = "About 75 to 80 percent of land cover pixels are correct, so the spli
 
 @st.cache_data(ttl=600, show_spinner=False)
 def land_probe():
-    """(True, "") when WorldCover answers, else (False, exception class). One small request, cached ten minutes."""
-    return landcover.reachable()
-
-
-@st.cache_data(max_entries=8, ttl=3600, show_spinner="Reading land cover for the drawn points (the first time takes a "
-                                                       "while, the next time uses the disk cache)")
-def land_codes(lon, lat, scan, track):
-    """WorldCover class of the drawn points in batches (src/context/landcover.py), or the exception class."""
-    try:
-        return landcover.classify(lon, lat, scan, track)
-    except Exception as e:
-        return {"error": type(e).__name__}
+    """(reachable, why) for the filter control. WorldCover is asked in a thread (the table keeps the answer ten
+    minutes), and an answer that is not there after 0.3 seconds counts as reachable, so the page never waits for it."""
+    table = landtable.get()
+    if table.error and len(table) == 0 and not table.running():
+        return False, table.error
+    box = {}
+    th = threading.Thread(target=lambda: box.update(r=table.probe()), daemon=True)
+    th.start()
+    th.join(0.3)
+    ok, why = box.get("r", (True, ""))
+    if not ok and len(table):
+        ok = True                                    # offline, but the cells already in the table still work
+    return ok, why
 
 
 @st.cache_data(max_entries=8, show_spinner=False)
@@ -1173,6 +1175,18 @@ def cluster_flags(lat, lon, day, frp, query):
         return {"flags": flags, "frp": thr}
     except Exception as e:
         return {"error": type(e).__name__}
+
+
+def rest_new(g):
+    """True once per view: the cells of the whole view are queued behind the drawn ones the first time the view needs the
+    land cover, and not again for a change of band, tier, operating point or selector."""
+    key = (len(g), round(float(g["latitude"].sum()), 3), round(float(g["longitude"].sum()), 3))
+    seen = st.session_state.setdefault("land_rest_views", [])
+    if key in seen:
+        return False
+    seen.append(key)
+    del seen[:-8]
+    return True
 
 
 def land_filter(choice, sampled, kinds_s, g):
@@ -1190,37 +1204,52 @@ def land_filter(choice, sampled, kinds_s, g):
             return sampled, kinds_s, res
         keep = res["flags"]
         return sampled[keep], kinds_s[keep], {"kind": "clusters", "n": n, "in": int(keep.sum()), "frp": res["frp"]}
-    scan = sampled["scan"].to_numpy(float) if "scan" in sampled else None
-    track = sampled["track"].to_numpy(float) if "track" in sampled else None
-    res = land_codes(sampled["longitude"].to_numpy(float), sampled["latitude"].to_numpy(float),
-                     scan if scan is not None else np.full(n, np.nan), track if track is not None else np.full(n, np.nan))
-    if "error" in res:
-        return sampled, kinds_s, res
-    code = res["code"]
+    # classes: the class of each detection is the class of its 0.01 degree cell, an array lookup in the shared table.
+    # Cells that are not in the table yet are read by a background thread; until then the view is drawn without the
+    # filter (the page never waits for a tile).
+    table = landtable.get()
+    ids_s = landtable.cell_ids(sampled["latitude"].to_numpy(float), sampled["longitude"].to_numpy(float))
+    code = table.lookup(ids_s)
+    unknown = code == landtable.UNKNOWN
+    if unknown.any():
+        if table.error and not table.running():
+            return sampled, kinds_s, {"error": table.error}
+        ids_g = landtable.cell_ids(g["latitude"].to_numpy(float), g["longitude"].to_numpy(float))
+        table.request(ids_s[unknown], ids_g if rest_new(g) else [])    # the drawn cells first, then the rest of the view
+        return sampled, kinds_s, {"kind": "preparing", "n": int(len(np.unique(ids_s[unknown])))}
+    if rest_new(g):                                  # the rest of the view, so a new selection finds its cells ready
+        table.request([], landtable.cell_ids(g["latitude"].to_numpy(float), g["longitude"].to_numpy(float)))
     grp = landcover.groups(code)
     want = landcover.GROUP_CROP if choice == "Burning on cropland" else landcover.GROUP_NATURAL
     keep = grp == want
-    counts = landcover.accounting(code)
-    return sampled[keep], kinds_s[keep], {"kind": "classes", "n": n, "counts": counts, "level": res["level"],
-                                          "pixel_m": res["pixel_m"], "read": res["tiles_read"],
-                                          "cached": res["tiles_cached"], "failed": res["failed"]}
+    return sampled[keep], kinds_s[keep], {"kind": "classes", "n": n, "cells": int(len(np.unique(ids_s))),
+                                          "counts": landcover.accounting(code)}
+
+
+@st.fragment(run_every=2)
+def land_poll():
+    """While cells are being read: how many places are left. One full rerun when the thread is done."""
+    t = landtable.get()
+    st.caption(f"Land cover is being prepared for {max(t.remaining(), 1 if t.running() else 0):,} places. The globe is "
+               "drawn without the land cover filter until they are ready.")
+    if not t.running():
+        st.rerun()
 
 
 def land_counts_text(info):
-    """The count per class under the globe, with what was read and the proxy sentence."""
+    """The count per class under the globe, with where the classes come from and the proxy sentence."""
     if info.get("kind") == "clusters":
         return (f"Land cover context, not a model. Large clusters: {info['in']:,} of the {info['n']:,} drawn points are in a "
                 f"large cluster (5 or more detections within 2 km, on 2 or more days, FRP at or above "
                 f"{info['frp']:.1f} MW, the 75th percentile of the window). A proxy for a large fire, not a model.")
     c = info["counts"]
     parts = ", ".join(f"{landcover.ACCOUNT_NAMES[k]} {c[k]:,}" for k in landcover.ACCOUNT_KEYS)
-    text = (f"Land cover context, not a model. Of the {info['n']:,} drawn points: {parts}. {landcover.SOURCE}, pixels of "
-            f"about {info['pixel_m']:g} m, {info['read']:,} tiles read and {info['cached']:,} from the disk cache. "
-            f"{LC_PROXY}")
+    text = (f"Land cover context, not a model. Of the {info['n']:,} drawn points ({info['cells']:,} cells of 0.01 "
+            f"degree, about 1 km): {parts}. The class of a detection is the majority class of its cell, "
+            f"{landcover.SOURCE}. {LC_PROXY}")
     if c["not_read"]:
-        text += (" Not read means the tile could not be read in this run (the time limit or a failed request), or "
-                 "the footprint has no land cover value (open sea or no data); the next run continues from the disk "
-                 "cache.")
+        text += (" Not read means the cell could not be read in this run (a failed request), or it has no land cover "
+                 "value (open sea or no data).")
     return text
 
 
@@ -1324,7 +1353,7 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
     # the drawn points, the land cover filter and the page are made once per view: a click, which reruns this body,
     # reuses them, so the drawer's text is not held back by building the globe page again
     ckey = (view, len(g), round(float(g["latitude"].sum()), 3), round(float(g["p_static"].sum()), 4), cap, tier_name,
-            kind, bool(demo))
+            kind, bool(demo), landtable.get().version if lc not in (LC_ALL, "Large clusters") else 0)
     c = st.session_state.get(f"earth_page_{suffix}")
     if not c or c["key"] != ckey:
         drawn, kinds = earth.select(g, show, band)
@@ -1371,6 +1400,8 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
     if lc_info is not None:
         if "error" in lc_info:
             st.caption(f"The land cover filter could not be applied ({lc_info['error']}); every detection is shown.")
+        elif lc_info.get("kind") == "preparing":
+            land_poll()
         else:
             st.caption(land_counts_text(lc_info))
             if lc != "Large clusters":

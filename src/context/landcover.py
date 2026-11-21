@@ -177,8 +177,9 @@ def level_geometry(header, level):
             "tw": L["tw"], "th": L["th"], "nx": -(-L["w"] // L["tw"]), "ny": -(-L["h"] // L["th"])}
 
 
-def get_tile(name, header, level, ty, tx, fetch, cache_dir):
-    """(array of one tile, True when it came from the disk cache). One range request when it is not cached."""
+def get_tile(name, header, level, ty, tx, fetch, cache_dir, keep=True):
+    """(array of one tile, True when it came from the disk cache). One range request when it is not cached. With
+    keep=False a tile that was read is not written to the disk cache (the land table keeps only the class of a cell)."""
     f = cache_dir / name / f"L{level}_{ty}_{tx}.npz"
     if f.exists():
         try:
@@ -199,7 +200,8 @@ def get_tile(name, header, level, ty, tx, fetch, cache_dir):
     def save(p):
         with open(p, "wb") as fh:                                     # a file object, so no suffix is appended
             np.savez_compressed(fh, a=arr)
-    _atomic_write(f, save)
+    if keep:
+        _atomic_write(f, save)
     return arr, False
 
 
@@ -229,14 +231,21 @@ def _tiles_needed(win, geom):
 
 
 def classify(lon, lat, scan_km=None, track_km=None, *, fetch=None, cache_dir=None, max_tiles=MAX_TILES,
-             budget_s=BUDGET_S, workers=WORKERS):
+             budget_s=BUDGET_S, workers=WORKERS, keep_tiles=True):
     """Majority WorldCover class over the pixel footprint of each point, in batches.
 
     Returns a dict: code (uint8 per point: the WorldCover class, 0 where the tile has no land, 255 where it could not
     be read in this run), level, pixel_m (size of a pixel of the level, north to south), tiles_read, tiles_cached,
     failed (tiles or files that failed), headers_read, source and fetched_at. Raises Unavailable when no file
     can be reached at all."""
-    fetch = fetch or http_fetch
+    if fetch is None:
+        # one session for the whole call, so the connections to the bucket are kept and reused instead of a new secure
+        # connection for every tile
+        import requests
+        from requests.adapters import HTTPAdapter
+        session = requests.Session()
+        session.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=max(2 * workers, 4)))
+        fetch = lambda name, start, end: http_fetch(name, start, end, session=session)  # noqa: E731
     cache_dir = cache_dir or CACHE_DIR
     lon, lat = np.asarray(lon, float), np.asarray(lat, float)
     n = len(lon)
@@ -301,7 +310,7 @@ def classify(lon, lat, scan_km=None, track_km=None, *, fetch=None, cache_dir=Non
         if time.time() > deadline:
             return item, None, "budget"
         try:
-            arr, cached = get_tile(nm, headers[nm], level, ty, tx, fetch, cache_dir)
+            arr, cached = get_tile(nm, headers[nm], level, ty, tx, fetch, cache_dir, keep_tiles)
             return item, (arr, cached), None
         except TileMissing:
             return item, None, "missing"
