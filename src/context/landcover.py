@@ -28,7 +28,7 @@ from ..config import ROOT
 
 BASE = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 CACHE_DIR = ROOT / "data" / "cache" / "worldcover"
-USER_AGENT = "fire-hotspot-classifier/1.0 (course project)"
+USER_AGENT = "fire-hotspot-classifier/1.0 (https://github.com/Yusra-Shah/thermal-anomaly-classifier)"
 SOURCE = "ESA WorldCover 2021 v200 (10 m, CC BY 4.0)"
 TIMEOUT = 8                      # seconds for one request
 HEADER_BYTES = 65536             # the first bytes of a file, which hold its tile index

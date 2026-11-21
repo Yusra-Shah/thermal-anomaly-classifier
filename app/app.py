@@ -152,7 +152,7 @@ ALL_REGIONS = "All regions"
 LIVE_HOURS = [6, 24, 72]
 LIVE_REFRESH_SECONDS = 600
 STORE_COLS = ["sensor", "region", "latitude", "longitude", "acq_date", "acq_time", "timestamp", "cell_id",
-              "bright_ti4", "frp", "p_instant", "p_history"]
+              "bright_ti4", "frp", "scan", "track", "p_instant", "p_history"]
 
 
 @st.cache_data(ttl=LIVE_REFRESH_SECONDS, show_spinner="Reading the live store")
@@ -330,16 +330,17 @@ st.title("Fire Hotspot Classifier")
 st.caption("NASA FIRMS VIIRS detections, classified as likely fire or likely static heat source.")
 
 tier = st.sidebar.radio("Model tier", [INSTANT, HISTORY])
+# Only the small model is loaded here. The archive tables are read when a tab or the archive source needs them, and
+# only the open tab is run (st.tabs with a key and on_change="rerun" tells which one is open), so the Earth, which
+# is the front page, does not wait for tables that other tabs use.
 if tier == INSTANT:
-    scored = load_scored(f"scored_{TAG}.parquet")
     bundle = load_model(f"best_model_{TAG}.joblib")
     prob_col = "p_static"
 else:
-    scored = load_scored("scored_history.parquet")
     bundle = load_model("best_model_history.joblib")
     prob_col = "p_static_history"
 
-if scored is None or bundle is None:
+if bundle is None:
     st.warning("No trained model found for this tier. Run `python -m src.train --tag headline` "
                "(instant) or `python -m src.final_history` (with history) first.")
     st.stop()
@@ -361,22 +362,9 @@ else:
     st.info("The history tier needs past detections of the same place and works best with at least "
             f"{MIN_HISTORY_DAYS} days of data. It predicts NASA's repeat based static flag.")
 
-scored = scored.assign(p_static=scored[prob_col], pred_static=(scored[prob_col] >= thr).astype(int))
-
-tab_earth, tab_data, tab_spot, tab_live, tab_metrics, tab_results = st.tabs(
-    ["Earth", "Data and features", "Why a spot is static", "Classify a new file", "Model metrics", "Results"])
-
-with tab_spot:
-    st.write("Pick a location that was flagged repeatedly and see it appear day after day.")
-    cells = (scored.groupby("cell_id")["acq_date"].nunique().sort_values(ascending=False).head(50))
-    if len(cells):
-        cid = st.selectbox("Most repeated locations (cell id, days seen)",
-                           cells.index, format_func=lambda c: f"{c}  ({cells[c]} days)")
-        sub = scored[scored["cell_id"] == cid].sort_values("timestamp")
-        st.dataframe(sub[["timestamp", "bright_ti4", "frp", "p_static", "pred_static"]]
-                     .reset_index(drop=True), width="stretch")
-        per_day = sub.groupby(sub["acq_date"].dt.date).size()
-        st.bar_chart(per_day)
+TAB_NAMES = ["Earth", "Data and features", "Why a spot is static", "Classify a new file", "Model metrics", "Results"]
+tab_earth, tab_data, tab_spot, tab_live, tab_metrics, tab_results = st.tabs(TAB_NAMES, key="main_tabs",
+                                                                           on_change="rerun")
 
 def classify_tab():
     """Upload a FIRMS CSV and see it on the same globe as the Earth tab (sidebar tier, warnings, counters)."""
@@ -438,167 +426,189 @@ def world_section():
                "label, not independent truth. DR Congo has almost no static detections, so its scores are noisy.")
 
 
-with tab_metrics:
-    world_section()
-    mpath = REPORT_DIR / f"metrics_{TAG}.json"
-    if mpath.exists():
-        m = json.loads(mpath.read_text())
-        st.write(f"Best instant model: **{m['best_model']}**. Window {m['date_min']} to {m['date_max']}, "
-                 f"{m['rows']:,} detections, {m['static_share']:.1%} static.")
-        st.dataframe(pd.read_csv(REPORT_DIR / f"model_comparison_{TAG}.csv", index_col=0))
-        a, b = st.columns(2)
-        if (REPORT_DIR / f"confusion_matrix_{TAG}.png").exists():
-            a.image(str(REPORT_DIR / f"confusion_matrix_{TAG}.png"))
-        if (REPORT_DIR / f"feature_importance_{TAG}.png").exists():
-            b.image(str(REPORT_DIR / f"feature_importance_{TAG}.png"))
-        st.caption("Scores are on locations the model never saw during training. The label is NASA's "
-                   "own type flag. The confusion matrix uses the saved threshold.")
-    upath = REPORT_DIR / "uncertain_eval.csv"
-    if upath.exists():
-        st.subheader("Uncertain band")
-        u = pd.read_csv(upath)
-        cols = ["tier", "split", "definition", "t_low", "t_high", "coverage", "decided_accuracy",
-                "static_precision_decided", "static_recall_decided", "fire_npv_decided",
-                "errors_in_uncertain_share"]
-        st.dataframe(u[~u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
-                     hide_index=True)
-        if (REPORT_DIR / "uncertain_curve.png").exists():
-            st.image(str(REPORT_DIR / "uncertain_curve.png"))
-        st.caption("Scores are calibrated. Static at or above t_high, fire at or below t_low, uncertain in "
-                   "between, with the highest coverage whose accuracy on decided out of fold training points is "
-                   "0.96 (default) or 0.98 (strict). Precision and recall are on the decided points, "
-                   "errors_in_uncertain_share is the share of the forced binary errors that fall in the uncertain "
-                   "band. NASA's flag is the label, not independent truth.")
-        with st.expander("Earlier precision based definition (negative result)"):
-            st.dataframe(u[u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
-                         hide_index=True)
-            if (REPORT_DIR / "uncertain_curve_precision_based.png").exists():
-                st.image(str(REPORT_DIR / "uncertain_curve_precision_based.png"))
-            st.caption("Static precision at least 0.90 and fire side precision at least 0.95. Fire is the "
-                       "majority class, so the fire side target is almost always met, the two ranges overlap "
-                       "for the history tier and its band is empty. Kept as a documented negative result.")
-    parts = []
-    for sat_file, sat_name in (("noaa20_transfer.csv", "NOAA-20"), ("noaa21_transfer.csv", "NOAA-21")):
-        if (REPORT_DIR / sat_file).exists():
-            parts.append(pd.read_csv(REPORT_DIR / sat_file).assign(satellite=sat_name))
-    if parts:
-        st.subheader("NOAA-20 and NOAA-21 transfer")
-        t = pd.concat(parts, ignore_index=True)
-        t = t[~t["test_set"].str.contains("reference") | (t["satellite"] == parts[0]["satellite"].iloc[0])]
-        cols = ["satellite", "model", "test_set", "region", "n", "static_share", "pr_auc", "majority_pr_auc",
-                "precision", "recall", "f1", "brier_calibrated", "ece_calibrated", "uncertain_share_0.96",
-                "uncertain_share_0.98"]
-        cols = [c for c in cols if c in t]
-        st.dataframe(t[t["region"] == "all"][cols].round(3), width="stretch", hide_index=True)
-        with st.expander("Per region"):
-            st.dataframe(t[t["region"] != "all"][cols].round(3), width="stretch", hide_index=True)
-        st.caption("Trained on Suomi NPP cells, tested on NOAA-20 and NOAA-21 archive data with the Suomi NPP "
-                   "thresholds, calibrators and bands unchanged. Cell disjoint means cells that were not Suomi NPP "
-                   "training cells. Not cell disjoint is easier, those places were seen in training. The satellites "
-                   "observe the same places within a short time of each other and the label is NASA's repeat based "
-                   "flag, so this is a transfer between near twins, not independent truth. The Suomi NPP reference "
-                   "rows are shown once.")
+with tab_spot:
+    if tab_spot.open:
+        scored = load_scored(f"scored_{TAG}.parquet" if tier == INSTANT else "scored_history.parquet")
+        if scored is None:
+            st.warning("No scored archive found for this tier. Run `python -m src.train --tag headline` (instant) "
+                       "or `python -m src.final_history` (with history) first.")
+        else:
+            scored = scored.assign(p_static=scored[prob_col], pred_static=(scored[prob_col] >= thr).astype(int))
+            st.write("Pick a location that was flagged repeatedly and see it appear day after day.")
+            cells = (scored.groupby("cell_id")["acq_date"].nunique().sort_values(ascending=False).head(50))
+            if len(cells):
+                cid = st.selectbox("Most repeated locations (cell id, days seen)",
+                                   cells.index, format_func=lambda c: f"{c}  ({cells[c]} days)")
+                sub = scored[scored["cell_id"] == cid].sort_values("timestamp")
+                st.dataframe(sub[["timestamp", "bright_ti4", "frp", "p_static", "pred_static"]]
+                             .reset_index(drop=True), width="stretch")
+                per_day = sub.groupby(sub["acq_date"].dt.date).size()
+                st.bar_chart(per_day)
 
-    strat = REPORT_DIR / "daynight_stratified.csv"
-    if strat.exists():
-        st.subheader("Day and night")
-        sdf = pd.read_csv(strat)
-        base = pd.read_csv(REPORT_DIR / "daynight_vs_baseline.csv") if (REPORT_DIR / "daynight_vs_baseline.csv").exists() else None
-        if base is not None:
-            st.caption("Static PR-AUC and F1 over all detections against a baseline that calls every night "
-                       "detection static.")
-            st.dataframe(base[["split", "tier", "pr_auc", "baseline_pr_auc", "pr_auc_above_baseline", "f1",
-                               "baseline_f1", "f1_above_baseline"]].round(3), width="stretch", hide_index=True)
-        with st.expander("Stratified by day and night, every tier"):
-            cols = ["split", "tier", "stratum", "n", "static_share", "majority_pr_auc", "pr_auc", "precision",
-                    "recall", "f1"]
-            st.dataframe(sdf[cols].round(3), width="stretch", hide_index=True)
-            st.caption("Day and night detections are scored on their own, each with its own majority baseline "
-                       "(the static share of that stratum). The night baseline predicts static for every night "
-                       "detection. NASA's flag is the label, not independent truth.")
-    abl = REPORT_DIR / "daynight_ablation.csv"
-    if abl.exists():
-        st.subheader("Instant tier ablation")
-        adf = pd.read_csv(abl)
-        st.dataframe(adf[adf["stratum"] == "all"][["variant", "n_features", "pr_auc", "precision", "recall", "f1",
-                                                    "threshold"]].round(3), width="stretch", hide_index=True)
-        if (REPORT_DIR / "daynight_permutation.csv").exists():
-            with st.expander("Permutation importance on the held out split"):
-                st.dataframe(pd.read_csv(REPORT_DIR / "daynight_permutation.csv").round(4), width="stretch",
+
+with tab_metrics:
+    if tab_metrics.open:
+        world_section()
+        mpath = REPORT_DIR / f"metrics_{TAG}.json"
+        if mpath.exists():
+            m = json.loads(mpath.read_text())
+            st.write(f"Best instant model: **{m['best_model']}**. Window {m['date_min']} to {m['date_max']}, "
+                     f"{m['rows']:,} detections, {m['static_share']:.1%} static.")
+            st.dataframe(pd.read_csv(REPORT_DIR / f"model_comparison_{TAG}.csv", index_col=0))
+            a, b = st.columns(2)
+            if (REPORT_DIR / f"confusion_matrix_{TAG}.png").exists():
+                a.image(str(REPORT_DIR / f"confusion_matrix_{TAG}.png"))
+            if (REPORT_DIR / f"feature_importance_{TAG}.png").exists():
+                b.image(str(REPORT_DIR / f"feature_importance_{TAG}.png"))
+            st.caption("Scores are on locations the model never saw during training. The label is NASA's "
+                       "own type flag. The confusion matrix uses the saved threshold.")
+        upath = REPORT_DIR / "uncertain_eval.csv"
+        if upath.exists():
+            st.subheader("Uncertain band")
+            u = pd.read_csv(upath)
+            cols = ["tier", "split", "definition", "t_low", "t_high", "coverage", "decided_accuracy",
+                    "static_precision_decided", "static_recall_decided", "fire_npv_decided",
+                    "errors_in_uncertain_share"]
+            st.dataframe(u[~u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
+                         hide_index=True)
+            if (REPORT_DIR / "uncertain_curve.png").exists():
+                st.image(str(REPORT_DIR / "uncertain_curve.png"))
+            st.caption("Scores are calibrated. Static at or above t_high, fire at or below t_low, uncertain in "
+                       "between, with the highest coverage whose accuracy on decided out of fold training points is "
+                       "0.96 (default) or 0.98 (strict). Precision and recall are on the decided points, "
+                       "errors_in_uncertain_share is the share of the forced binary errors that fall in the uncertain "
+                       "band. NASA's flag is the label, not independent truth.")
+            with st.expander("Earlier precision based definition (negative result)"):
+                st.dataframe(u[u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
                              hide_index=True)
-        st.caption("XGBoost with 100 trees on the grouped split, retrained without one group of features at a "
-                   "time, thresholds from out of fold training scores only.")
+                if (REPORT_DIR / "uncertain_curve_precision_based.png").exists():
+                    st.image(str(REPORT_DIR / "uncertain_curve_precision_based.png"))
+                st.caption("Static precision at least 0.90 and fire side precision at least 0.95. Fire is the "
+                           "majority class, so the fire side target is almost always met, the two ranges overlap "
+                           "for the history tier and its band is empty. Kept as a documented negative result.")
+        parts = []
+        for sat_file, sat_name in (("noaa20_transfer.csv", "NOAA-20"), ("noaa21_transfer.csv", "NOAA-21")):
+            if (REPORT_DIR / sat_file).exists():
+                parts.append(pd.read_csv(REPORT_DIR / sat_file).assign(satellite=sat_name))
+        if parts:
+            st.subheader("NOAA-20 and NOAA-21 transfer")
+            t = pd.concat(parts, ignore_index=True)
+            t = t[~t["test_set"].str.contains("reference") | (t["satellite"] == parts[0]["satellite"].iloc[0])]
+            cols = ["satellite", "model", "test_set", "region", "n", "static_share", "pr_auc", "majority_pr_auc",
+                    "precision", "recall", "f1", "brier_calibrated", "ece_calibrated", "uncertain_share_0.96",
+                    "uncertain_share_0.98"]
+            cols = [c for c in cols if c in t]
+            st.dataframe(t[t["region"] == "all"][cols].round(3), width="stretch", hide_index=True)
+            with st.expander("Per region"):
+                st.dataframe(t[t["region"] != "all"][cols].round(3), width="stretch", hide_index=True)
+            st.caption("Trained on Suomi NPP cells, tested on NOAA-20 and NOAA-21 archive data with the Suomi NPP "
+                       "thresholds, calibrators and bands unchanged. Cell disjoint means cells that were not Suomi NPP "
+                       "training cells. Not cell disjoint is easier, those places were seen in training. The satellites "
+                       "observe the same places within a short time of each other and the label is NASA's repeat based "
+                       "flag, so this is a transfer between near twins, not independent truth. The Suomi NPP reference "
+                       "rows are shown once.")
+
+        strat = REPORT_DIR / "daynight_stratified.csv"
+        if strat.exists():
+            st.subheader("Day and night")
+            sdf = pd.read_csv(strat)
+            base = pd.read_csv(REPORT_DIR / "daynight_vs_baseline.csv") if (REPORT_DIR / "daynight_vs_baseline.csv").exists() else None
+            if base is not None:
+                st.caption("Static PR-AUC and F1 over all detections against a baseline that calls every night "
+                           "detection static.")
+                st.dataframe(base[["split", "tier", "pr_auc", "baseline_pr_auc", "pr_auc_above_baseline", "f1",
+                                   "baseline_f1", "f1_above_baseline"]].round(3), width="stretch", hide_index=True)
+            with st.expander("Stratified by day and night, every tier"):
+                cols = ["split", "tier", "stratum", "n", "static_share", "majority_pr_auc", "pr_auc", "precision",
+                        "recall", "f1"]
+                st.dataframe(sdf[cols].round(3), width="stretch", hide_index=True)
+                st.caption("Day and night detections are scored on their own, each with its own majority baseline "
+                           "(the static share of that stratum). The night baseline predicts static for every night "
+                           "detection. NASA's flag is the label, not independent truth.")
+        abl = REPORT_DIR / "daynight_ablation.csv"
+        if abl.exists():
+            st.subheader("Instant tier ablation")
+            adf = pd.read_csv(abl)
+            st.dataframe(adf[adf["stratum"] == "all"][["variant", "n_features", "pr_auc", "precision", "recall", "f1",
+                                                        "threshold"]].round(3), width="stretch", hide_index=True)
+            if (REPORT_DIR / "daynight_permutation.csv").exists():
+                with st.expander("Permutation importance on the held out split"):
+                    st.dataframe(pd.read_csv(REPORT_DIR / "daynight_permutation.csv").round(4), width="stretch",
+                                 hide_index=True)
+            st.caption("XGBoost with 100 trees on the grouped split, retrained without one group of features at a "
+                       "time, thresholds from out of fold training scores only.")
 
 with tab_results:
-    st.subheader("Rule, instant and history results")
-    shown = False
+    if tab_results.open:
+        st.subheader("Rule, instant and history results")
+        shown = False
 
-    ev = read_csv("history2_eval_a.csv")
-    if ev is not None:
-        shown = True
-        subset = st.selectbox("Test rows", list(ev["subset"].unique()))
-        d = ev[(ev["subset"] == subset)
-               & (ev["setup"].str.startswith(("Rule", "B ", "D ")))
-               & (ev["model"].isin(["Random Forest", "XGBoost", "XGBoost tuned"])
-                  | (ev["setup"] == "Rule"))]
-        d = d.assign(model=d["model"].where(d["setup"] != "Rule", "distinct_days_prior_30 >= k"))
-        cols = ["pr_auc_static", "precision_static", "recall_static", "f1_static"]
-        g = d.groupby(["setup", "model"], sort=False)[cols]
-        table = g.mean().round(3).astype(str) + " (" + g.std().round(3).astype(str) + ")"
-        table.index = [f"{setup}: {model}" for setup, model in table.index]
-        st.write("Five grouped splits, mean (std). Rule, B (instant + history v1) and D "
-                 "(instant + history v1 + v2).")
-        st.dataframe(table.rename(columns=dict(zip(cols, ["PR-AUC", "Precision", "Recall", "F1"]))))
-        rule_f1 = d[d["setup"] == "Rule"]["f1_static"].mean()
-        d_f1 = d[(d["setup"].str.startswith("D ")) & (d["model"] == "XGBoost")]["f1_static"].mean()
-        k1, k2 = st.columns(2)
-        k1.metric("Rule F1 (static)", f"{rule_f1:.3f}")
-        k2.metric("D XGBoost F1 (static)", f"{d_f1:.3f}")
+        ev = read_csv("history2_eval_a.csv")
+        if ev is not None:
+            shown = True
+            subset = st.selectbox("Test rows", list(ev["subset"].unique()))
+            d = ev[(ev["subset"] == subset)
+                   & (ev["setup"].str.startswith(("Rule", "B ", "D ")))
+                   & (ev["model"].isin(["Random Forest", "XGBoost", "XGBoost tuned"])
+                      | (ev["setup"] == "Rule"))]
+            d = d.assign(model=d["model"].where(d["setup"] != "Rule", "distinct_days_prior_30 >= k"))
+            cols = ["pr_auc_static", "precision_static", "recall_static", "f1_static"]
+            g = d.groupby(["setup", "model"], sort=False)[cols]
+            table = g.mean().round(3).astype(str) + " (" + g.std().round(3).astype(str) + ")"
+            table.index = [f"{setup}: {model}" for setup, model in table.index]
+            st.write("Five grouped splits, mean (std). Rule, B (instant + history v1) and D "
+                     "(instant + history v1 + v2).")
+            st.dataframe(table.rename(columns=dict(zip(cols, ["PR-AUC", "Precision", "Recall", "F1"]))))
+            rule_f1 = d[d["setup"] == "Rule"]["f1_static"].mean()
+            d_f1 = d[(d["setup"].str.startswith("D ")) & (d["model"] == "XGBoost")]["f1_static"].mean()
+            k1, k2 = st.columns(2)
+            k1.metric("Rule F1 (static)", f"{rule_f1:.3f}")
+            k2.metric("D XGBoost F1 (static)", f"{d_f1:.3f}")
 
-    ops = read_csv("history2_operating_points.csv")
-    if ops is not None:
-        shown = True
-        st.write(f"Operating points, {ops['setup'].iloc[0]}, {ops['model'].iloc[0]}. Thresholds from "
-                 "training predictions only, precision and recall on the test part.")
-        five = ops[ops["split"].str.startswith("seed")]
-        st.dataframe(five.groupby("operating point", sort=False)[["threshold", "precision", "recall"]]
-                     .mean().round(3).rename(index=lambda s: f"{s} (mean of 5 splits)"))
-        st.dataframe(ops[ops["split"] == "temporal"].drop(columns=["setup", "model"])
-                     .reset_index(drop=True))
-    if (REPORT_DIR / "pr_curve_history2.png").exists():
-        st.image(str(REPORT_DIR / "pr_curve_history2.png"), width=480)
+        ops = read_csv("history2_operating_points.csv")
+        if ops is not None:
+            shown = True
+            st.write(f"Operating points, {ops['setup'].iloc[0]}, {ops['model'].iloc[0]}. Thresholds from "
+                     "training predictions only, precision and recall on the test part.")
+            five = ops[ops["split"].str.startswith("seed")]
+            st.dataframe(five.groupby("operating point", sort=False)[["threshold", "precision", "recall"]]
+                         .mean().round(3).rename(index=lambda s: f"{s} (mean of 5 splits)"))
+            st.dataframe(ops[ops["split"] == "temporal"].drop(columns=["setup", "model"])
+                         .reset_index(drop=True))
+        if (REPORT_DIR / "pr_curve_history2.png").exists():
+            st.image(str(REPORT_DIR / "pr_curve_history2.png"), width=480)
 
-    fin = read_json("history_final_metrics.json")
-    if fin is not None:
-        shown = True
-        st.write(f"Saved history model ({fin['model']}, setup {fin['setup']}), held out 20 percent "
-                 f"of locations, split seed {fin['split_seed']}.")
-        st.dataframe(pd.DataFrame(fin["operating_points"]).T)
+        fin = read_json("history_final_metrics.json")
+        if fin is not None:
+            shown = True
+            st.write(f"Saved history model ({fin['model']}, setup {fin['setup']}), held out 20 percent "
+                     f"of locations, split seed {fin['split_seed']}.")
+            st.dataframe(pd.DataFrame(fin["operating_points"]).T)
 
-    reg = read_csv("region_eval_type_region.csv")
-    if reg is not None:
-        shown = True
-        st.write("Instant tier, leave one region out (train on two regions, test on the third).")
-        st.dataframe(reg.round(3))
+        reg = read_csv("region_eval_type_region.csv")
+        if reg is not None:
+            shown = True
+            st.write("Instant tier, leave one region out (train on two regions, test on the third).")
+            st.dataframe(reg.round(3))
 
-    inst = read_json(f"metrics_{TAG}.json")
-    if inst is not None:
-        shown = True
-        st.write("Instant tier, held out test split.")
-        res = pd.DataFrame(inst["results"]).T[["precision_static", "recall_static", "f1_static",
-                                              "pr_auc_static"]].round(3)
-        st.dataframe(res)
+        inst = read_json(f"metrics_{TAG}.json")
+        if inst is not None:
+            shown = True
+            st.write("Instant tier, held out test split.")
+            res = pd.DataFrame(inst["results"]).T[["precision_static", "recall_static", "f1_static",
+                                                  "pr_auc_static"]].round(3)
+            st.dataframe(res)
 
-    if not shown:
-        st.info("No report files found in reports/.")
+        if not shown:
+            st.info("No report files found in reports/.")
 
-    st.markdown(
-        "**How to read these results.** The labels come from NASA's own repeat based static flag, "
-        "not from independent ground truth. The history tier uses past detections of the same "
-        "place, which is close to restating that definition, so its scores show that past "
-        "detections predict NASA's flag, not that the flag is correct. A one line rule on the "
-        "count of recent days is shown next to the models: much of the history gain is already "
-        "in that rule. The instant tier uses a single reading and is much weaker.")
+        st.markdown(
+            "**How to read these results.** The labels come from NASA's own repeat based static flag, "
+            "not from independent ground truth. The history tier uses past detections of the same "
+            "place, which is close to restating that definition, so its scores show that past "
+            "detections predict NASA's flag, not that the flag is correct. A one line rule on the "
+            "count of recent days is shown next to the models: much of the history gain is already "
+            "in that rule. The instant tier uses a single reading and is much weaker.")
 
 
 LIVE_SRC = "Live near real time"
@@ -731,15 +741,16 @@ def panel_payload(row, base, kind, band, tier_name):
             for c in ("cc", "admin1", "city", "p_static", "pred_static"):
                 full[c] = row.get(c)
             row = full
-        spread = detail.spread_from_store(float(row["latitude"]), float(row["longitude"]), t, row.get("cell_id"))
+        spread = None                                  # read side by side with the outside sources (sections.py)
     else:
         label = "archive file (January to June 2025)" if kind == "archive" else "the uploaded file only"
         spread = detail.spread_from_frame(base, float(row["latitude"]), float(row["longitude"]), t,
                                           cell_days=detail.cell_days_from_frame(base, row.get("cell_id"), t),
                                           source=label)
-    extras = sections.fetch_all(row)                    # land, weather, people and response, on this click only
-    return detail.build(row, source=kind, tier=key, bundle=bundle, bands=bands,
-                        band=use_band, threshold=None, spread=spread, extras=extras)
+    payload = detail.build(row, source=kind, tier=key, bundle=bundle, bands=bands,
+                           band=use_band, threshold=None, spread=spread)
+    payload["row"] = row                               # the full stored row (with scan and track) for the sources
+    return payload
 
 
 def _v(x, unit="", nd=None):
@@ -767,10 +778,13 @@ SHOWN = {"fire": "Predicted fire", "static": "Predicted static heat source",
          "uncertain": "Uncertain, needs investigation"}
 
 
+LOADING = [False]
+
+
 def _un(sec):
-    """True (after writing the reason) when a section is missing or unavailable."""
+    """True (after writing the reason) when a section is missing, still loading or unavailable."""
     if not sec:
-        st.write("unavailable")
+        st.write("Loading..." if LOADING[0] else "unavailable")
         return True
     if "unavailable" in sec:
         st.write(f"unavailable: {sec['unavailable']}")
@@ -786,8 +800,34 @@ def _src2(sec):
 NUMBER_LABELS = (("general", "Emergency"), ("police", "Police"), ("fire", "Fire"), ("ambulance", "Ambulance"))
 
 
-def render_context(p):
-    """Land and fuel, Weather, People and buildings and Response, each with its source and age."""
+def render_spread(p):
+    """Spread and history of the detection, read from the store or the frame, with its source and age."""
+    st.markdown("**Spread and history**")
+    s = p.get("spread")
+    if s is None:
+        st.write("Loading..." if LOADING[0] else "unavailable")
+    elif "unavailable" in s:
+        st.write(f"unavailable: {s['unavailable']}")
+    else:
+        st.write(f"{s['n']:,} detections within {s['km']:g} km in the {s['hours']} hours up to this detection.")
+        if s["n"]:
+            st.markdown("\n".join(
+                [f"- {d['date']}: {d['n']}" for d in s["per_day"]] +
+                [f"- First seen {s['first_seen']} UTC, last seen {s['last_seen']} UTC",
+                 f"- Approximate area: {_v(s['area_km2'], ' square kilometres')} ({s['pixels']} pixels)",
+                 f"- Trend: {s['trend']}"] +
+                ([f"- Centre moved {s['move_km']} km" + (f" to the {s['move_dir']}" if s["move_dir"] else "")]
+                 if s["move_km"] is not None else [])))
+        st.write(f"Days seen at this cell in the last 90 days: {_v(s['cell_days_90'])}.")
+        st.caption(s["note"])
+        _src(s)
+
+
+def render_context(p, loading=False):
+    """Land and fuel, Weather, People and buildings and Response, each with its source and age. A section that is
+    still None while loading shows "Loading..."."""
+    LOADING[0] = loading
+    render_spread(p)
     st.markdown("**Land and fuel**")
     sec = p.get("land")
     if not _un(sec):
@@ -815,16 +855,27 @@ def render_context(p):
     sec = p.get("exposure")
     if not _un(sec):
         pop, pl, bd = sec.get("population"), sec.get("place"), sec.get("buildings")
+        wait = "Loading..." if LOADING[0] else "unavailable"
         lines = []
-        if pop and "unavailable" not in pop:
+        if pop is None:
+            lines += [f"- People: {wait}"]
+        elif "unavailable" not in pop:
             lines += [f"- People within 1 km: about {pop['within_1km']:,} (within 5 km: about {pop['within_5km']:,}), "
                       f"resolution {pop['resolution']}"]
         else:
-            lines += [f"- People: unavailable ({(pop or {}).get('unavailable', 'no answer')})"]
-        lines += ([f"- Nearest named place: {pl['name']}, {pl['km']:g} km {pl['direction']}"] if pl
-                  else ["- Nearest named place: unavailable"])
-        lines += ([f"- Buildings within 1 km: {bd['count']:,}"] if bd and "count" in bd
-                  else [f"- Buildings within 1 km: unavailable ({(bd or {}).get('unavailable', 'no answer')})"])
+            lines += [f"- People: unavailable ({pop['unavailable']})"]
+        if pl is None:
+            lines += [f"- Nearest named place: {wait}"]
+        elif "name" in pl:
+            lines += [f"- Nearest named place: {pl['name']}, {pl['km']:g} km {pl['direction']}"]
+        else:
+            lines += [f"- Nearest named place: unavailable ({pl['unavailable']})"]
+        if bd is None:
+            lines += [f"- Buildings within 1 km: {wait}"]
+        elif "count" in bd:
+            lines += [f"- Buildings within 1 km: {bd['count']:,}"]
+        else:
+            lines += [f"- Buildings within 1 km: unavailable ({bd['unavailable']})"]
         st.markdown("\n".join(lines))
         if pop and "note" in pop:
             st.caption(pop["note"])
@@ -848,7 +899,9 @@ def render_context(p):
             st.write(f"Emergency numbers, {nums['name']}: " + (", ".join(bits) if bits else "none on file") + tag)
         lines = []
         for label, res in sec["services"].items():
-            if "unavailable" in res:
+            if res is None:
+                lines.append(f"- {label}: {'Loading...' if LOADING[0] else 'unavailable'}")
+            elif "unavailable" in res:
                 lines.append(f"- {label}: unavailable ({res['unavailable']})")
             elif "none" in res:
                 lines.append(f"- {label}: none found within about {res['none']} km")
@@ -859,8 +912,28 @@ def render_context(p):
         _src2(sec)
 
 
-def render_panel(p):
-    v, f, pl, s = p.get("verdict"), p.get("facts"), p.get("place"), p.get("spread")
+@st.fragment(run_every=1)
+def context_poll(p, fetcher):
+    """The four outside sections while some are still loading: each shows as soon as its source answers, a section
+    that has not answered after 10 seconds shows as unavailable, timed out. One full rerun when all are settled."""
+    render_context({**p, **fetcher.snapshot()}, loading=True)
+    if not fetcher.pending():
+        st.rerun()
+
+
+def context_block(p, fetcher):
+    if fetcher is None:
+        render_context(p)
+        return
+    snap = fetcher.wait(0.4)                         # fast sources are in the first draw
+    if fetcher.pending():
+        context_poll(p, fetcher)
+    else:
+        render_context({**p, **snap})
+
+
+def render_panel(p, fetcher=None):
+    v, f, pl = p.get("verdict"), p.get("facts"), p.get("place")
     st.markdown("**Verdict**")
     if v:
         st.markdown(f"### {SHOWN.get(v['shown'], v['shown'])}")
@@ -907,24 +980,7 @@ def render_panel(p):
     else:
         st.write("unavailable")
 
-    st.markdown("**Spread and history**")
-    if s:
-        st.write(f"{s['n']:,} detections within {s['km']:g} km in the {s['hours']} hours up to this detection.")
-        if s["n"]:
-            st.markdown("\n".join(
-                [f"- {d['date']}: {d['n']}" for d in s["per_day"]] +
-                [f"- First seen {s['first_seen']} UTC, last seen {s['last_seen']} UTC",
-                 f"- Approximate area: {_v(s['area_km2'], ' square kilometres')} ({s['pixels']} pixels)",
-                 f"- Trend: {s['trend']}"] +
-                ([f"- Centre moved {s['move_km']} km" + (f" to the {s['move_dir']}" if s["move_dir"] else "")]
-                 if s["move_km"] is not None else [])))
-        st.write(f"Days seen at this cell in the last 90 days: {_v(s['cell_days_90'])}.")
-        st.caption(s["note"])
-        _src(s)
-    else:
-        st.write("unavailable")
-
-    render_context(p)
+    context_block(p, fetcher)
 
     st.markdown("**Notes**")
     for n in p.get("notes", []):
@@ -943,14 +999,16 @@ def detail_panel(pick, g, base, kind, bands, band, suffix, tier_name):
     got = st.session_state.get(cache_key)
     if not got or got[0] != ident:
         try:
-            with st.spinner("Fetching weather, land cover, population and nearby services (the first click at a "
-                            "place can take up to a minute, the next one uses the disk cache)"):
-                payload = panel_payload(row, base, kind, band, tier_name)
+            payload = panel_payload(row, base, kind, band, tier_name)
         except Exception as e:
             st.error(f"The details could not be made: {type(e).__name__}")
             return
-        st.session_state[cache_key] = got = (ident, payload)
-    render_panel(got[1])
+        try:
+            fetcher = sections.start(payload.pop("row", row), with_spread=kind == "live")   # side by side, on this click
+        except Exception:
+            fetcher = None                                         # the other sections still show, these say unavailable
+        st.session_state[cache_key] = got = (ident, payload, fetcher)
+    render_panel(got[1], got[2])
 
 
 def update_status_body():
@@ -1176,6 +1234,21 @@ def close_drawer(suffix, in_fragment):
         st.rerun()
 
 
+def warm_countries(g, suffix):
+    """Start the background download of the population grids of the countries in the view (once for a set of them)."""
+    try:
+        if "cc" not in g:
+            return
+        top = tuple(g["cc"].astype(str).value_counts().head(5).index)
+        if st.session_state.get(f"warm_{suffix}") == top:
+            return
+        st.session_state[f"warm_{suffix}"] = top
+        from src.context import people
+        people.warm_many(top)
+    except Exception:
+        pass
+
+
 def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth, tier_name, cap, in_fragment,
                  sig_extra=""):
     """Show, selector, band, geography filters, the globe with its detail drawer, and the counters, for any frame
@@ -1245,34 +1318,44 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
         return
     if band:
         g = g.assign(p_cal=uncertain.apply_calibrator(bands["calibrator"], g["p_static"].to_numpy()))
-    drawn, kinds = earth.select(g, show, band)
-    drawn, kinds = earth.apply_focus(drawn, kinds, codes)          # before the point cap, so counts are complete
-    sampled, kinds_s, total = earth.sample_rows(drawn, kinds, cap)
-    lc_info, legend_kinds = None, kinds
-    if lc != LC_ALL and len(sampled):
-        # land cover is read for the drawn points only (at most cap), in batches
-        sampled, kinds_s, lc_info = land_filter(lc, sampled, kinds_s, g)
-        if "error" not in lc_info:
-            legend_kinds = kinds_s
-    drawn = sampled
-    data, note = earth.payload(sampled, kinds_s, band, cap=cap, total=total)
-    if drawn.empty:
+    sig = "|".join([src, str(region), sig_extra] + [str(st.session_state.get(f"{prefix}_{n}"))
+                                                     for n in ("continent", "country", "province", "city")])
+    view = "|".join([sig, show, focus, lc, str(with_uncertain), str(band and band.get("target"))])
+    # the drawn points, the land cover filter and the page are made once per view: a click, which reruns this body,
+    # reuses them, so the drawer's text is not held back by building the globe page again
+    ckey = (view, len(g), round(float(g["latitude"].sum()), 3), round(float(g["p_static"].sum()), 4), cap, tier_name,
+            kind, bool(demo))
+    c = st.session_state.get(f"earth_page_{suffix}")
+    if not c or c["key"] != ckey:
+        drawn, kinds = earth.select(g, show, band)
+        drawn, kinds = earth.apply_focus(drawn, kinds, codes)      # before the point cap, so counts are complete
+        sampled, kinds_s, total = earth.sample_rows(drawn, kinds, cap)
+        lc_info, legend_kinds = None, kinds
+        if lc != LC_ALL and len(sampled):
+            # land cover is read for the drawn points only (at most cap), in batches
+            sampled, kinds_s, lc_info = land_filter(lc, sampled, kinds_s, g)
+            if "error" not in lc_info:
+                legend_kinds = kinds_s
+        data, note = earth.payload(sampled, kinds_s, band, cap=cap, total=total)
+        page = None
+        if not sampled.empty:
+            filtered = len(g) < len(base)
+            page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
+                              show, sig, demo, three_way=bool(band), codes=codes, kinds=legend_kinds,
+                              live_source=is_live, channel=suffix)
+        c = {"key": ckey, "page": page, "note": note, "n": len(data["x"]), "lc_info": lc_info}
+        st.session_state[f"earth_page_{suffix}"] = c
+    page, note, lc_info = c["page"], c["note"], c["lc_info"]
+    if page is None:
         st.info("No errors in this selection." if show == "Errors only"
                 else "No detections match this selection.")
     else:
-        filtered = len(g) < len(base)
         picked = f" Selection: {focus}." if codes is not None else ""
         st.caption(note + picked + " Needs internet for the imagery. To see every detection around one place, pick a "
                    "province or a nearest city.")
         st.caption("Click a detection to fly to it and see its satellite pixel footprint (an approximate rectangle "
                    "of scan by track, centred on the reported point) and its details in a drawer on the right. "
                    "The arrow on the drawer, Escape or a click on empty globe closes it.")
-        sig = "|".join([src, str(region), sig_extra] + [str(st.session_state.get(f"{prefix}_{n}"))
-                                                         for n in ("continent", "country", "province", "city")])
-        page = earth.html(data, earth.view_box(g) if filtered else None, earth.outlines(cc, province, g),
-                          show, sig, demo, three_way=bool(band), codes=codes, kinds=legend_kinds, live_source=is_live,
-                          channel=suffix)
-        view = "|".join([sig, show, focus, lc, str(with_uncertain), str(band and band.get("target"))])
         st.session_state[f"earth_view_{suffix}"] = view            # the key of the selection, read by the tests
         sel = read_pick(suffix, view)
         with st.container(key=f"earth_stage_{suffix}"):
@@ -1293,13 +1376,14 @@ def render_globe(src, base, bands, *, kind, region, demo, prefix, suffix, truth,
             if lc != "Large clusters":
                 st.caption("The legend counts are those of the drawn points of the filter.")
 
+    warm_countries(g, suffix)                   # after the page is drawn: population grids of this view, in the background
     m = st.columns(5 if band else 4)
     if band:
         m[4].metric("Uncertain", f"{int((uncertain.decide(g['p_cal'].to_numpy(), band) == uncertain.UNCERTAIN).sum()):,}")
     m[0].metric("Detections in Earth", f"{len(g):,}")
     m[1].metric("Predicted static", f"{int(g['pred_static'].sum()):,}")
     m[2].metric("Predicted fire", f"{int((1 - g['pred_static']).sum()):,}")
-    m[3].metric("Circles drawn", f"{len(data['x']):,}")
+    m[3].metric("Circles drawn", f"{c['n']:,}")
     if truth:
         fs, ff = earth.error_counts(g)
         n = st.columns(4)
@@ -1369,10 +1453,13 @@ def data_tab():
 
 
 with tab_earth:
-    earth_tab()
+    if tab_earth.open:
+        earth_tab()
 
 with tab_data:
-    data_tab()
+    if tab_data.open:
+        data_tab()
 
 with tab_live:
-    classify_tab()
+    if tab_live.open:
+        classify_tab()

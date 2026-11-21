@@ -249,9 +249,9 @@ const SAT = {
     lab: { type: "raster", tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 18 }
   },
   layers: [
-    { id: "imglo", type: "raster", source: "imglo", minzoom: 13 },
-    { id: "img", type: "raster", source: "img" },
-    { id: "lab", type: "raster", source: "lab" }
+    { id: "imglo", type: "raster", source: "imglo", minzoom: 13, paint: { "raster-fade-duration": 0 } },
+    { id: "img", type: "raster", source: "img", paint: { "raster-fade-duration": 0 } },
+    { id: "lab", type: "raster", source: "lab", paint: { "raster-fade-duration": 0 } }
   ]
 };
 const VOYAGER = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
@@ -268,6 +268,7 @@ if (saved) { mode = saved.mode; spin = saved.spin; if (saved.sat !== undefined) 
 
 const map = new maplibregl.Map({
   container: "map", style: mode === "sat" ? SAT : VOYAGER, maxPitch: 80, attributionControl: false,
+  maxTileCacheSize: 600, fadeDuration: 0,
   center: saved ? saved.c : [30, 20], zoom: saved ? saved.z : 1.4,
   pitch: saved ? saved.p : 0, bearing: saved ? saved.b : 0
 });
@@ -306,6 +307,41 @@ window.earthMap = map;
 window.earthState = { spinning: () => spin, mode: () => mode, satellites: () => satOn, easing: () => easing,
                       selected: () => (sel ? sel.i : null), legendCollapsed: () => legendCollapsed };
 
+// The globe is only needed at world views. Zoomed in beyond about zoom 6 the flat projection draws tiles faster, and
+// the view returns to the globe below 5.5 (the two zoom levels differ a little, so it does not flicker).
+const FLAT_ABOVE = 6, GLOBE_BELOW = 5.5;
+let flat = false;
+function syncProjection() {
+  const z = map.getZoom();
+  const want = flat ? z > GLOBE_BELOW : z > FLAT_ABOVE;
+  if (want === flat) return;
+  flat = want;
+  try { map.setProjection({ type: flat ? "mercator" : "globe" }); } catch (e) {}
+}
+map.on("zoom", syncProjection);
+// While a detection is selected the other circles are hidden, and shown again when the view returns.
+function setPts(on) {
+  try { if (map.getLayer("pts")) map.setLayoutProperty("pts", "visibility", on ? "visible" : "none"); } catch (e) {}
+}
+// Start loading the imagery tiles of the target at zoom 14 to 17 while the camera is still flying, so they are in
+// the browser cache when the map asks for them. The satellite basemap only.
+const TILE_BASE = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/";
+function prefetchTiles(lon, lat) {
+  if (mode !== "sat") return;
+  const sin = Math.sin(lat * Math.PI / 180);
+  // 12 requests: the 3 by 3 tiles of zoom 16, which the first view at the target needs, and the tile of the target at
+  // zoom 17, 15 and 14 (a burst of more would queue up behind the map's own requests to the same host)
+  for (const [z, r] of [[16, 1], [17, 0], [15, 0], [14, 0]]) {
+    const n = Math.pow(2, z), x0 = Math.floor((lon + 180) / 360 * n);
+    const y0 = Math.floor((1 - Math.log((1 + sin) / (1 - sin)) / 2 / Math.PI) / 2 * n);
+    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++)
+      fetch(TILE_BASE + z + "/" + (y0 + dy) + "/" + (x0 + dx), { mode: "cors" }).then(r => r.arrayBuffer()).catch(() => {});
+  }
+  window.earthPrefetched = (window.earthPrefetched || 0) + 1;
+}
+window.earthState = Object.assign(window.earthState || {}, { flat: () => flat, circlesHidden: () => hiddenPts });
+let hiddenPts = false;
+
 function points() {
   const f = [];
   for (let i = 0; i < D.x.length; i++)
@@ -333,6 +369,7 @@ function installPoints() {
     "circle-radius": ["interpolate", ["linear"], ["zoom"], 1, 3, 5, 3.5, 8, 3, 16, 2.5],
     "circle-opacity": ["interpolate", ["linear"], ["zoom"], 1, 0.9, 6, 0.9, 8, 0.7],
     "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.5, "circle-stroke-opacity": 0.6 } });
+  if (hiddenPts) setPts(false);
 }
 
 // Terrain, hillshade and outlines come after the points are indexed, and sit below the circles.
@@ -422,6 +459,8 @@ function ensure() {
     if (mode === "map") map.setProjection({ type: "globe" });
     installPoints();
     drawSel();                                       // a selection survives a basemap change
+    flat = false;
+    syncProjection();                                // a new style starts as the globe, flat when zoomed in
     ready = true;
     stats();
     scheduleExtras();
@@ -617,7 +656,7 @@ document.getElementById("tilt").onclick = (ev) => {
 // Click a detection: fly in, draw the pixel footprint and highlight the point. The footprint is an
 // approximation: a rectangle of scan (east to west) by track (north to south) kilometres, axis aligned and
 // centred on the reported point. Escape, a click elsewhere or closing the popup returns the earlier view.
-const NOMINAL_KM = 0.375, SEL_MAX_ZOOM = 17, SEL_MIN_ZOOM = 15, KM_PER_DEG = 111.32;
+const NOMINAL_KM = 0.375, SEL_MAX_ZOOM = 17, SEL_MIN_ZOOM = 15, KM_PER_DEG = 111.32, FLY_MS = 1200;
 let sel = null, popup = null, fpMarker = null;
 function pixelKm(i) {
   const has = D.sc && i < D.sc.length && D.sc[i] > 0 && D.tr[i] > 0;
@@ -680,9 +719,11 @@ function clearSel(back) {
   ["hl", "fpline", "fpfill"].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
   ["hl", "fp"].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
   if (fpMarker) { fpMarker.remove(); fpMarker = null; }
+  hiddenPts = false;
+  setPts(true);
   document.getElementById("back").style.display = "none";
   postPick(null);
-  if (back) map.flyTo({ center: prev.center, zoom: prev.zoom, pitch: prev.pitch, bearing: prev.bearing, duration: 2000,
+  if (back) map.flyTo({ center: prev.center, zoom: prev.zoom, pitch: prev.pitch, bearing: prev.bearing, duration: FLY_MS,
                        essential: true, padding: { top: 0, bottom: 0, left: 0, right: 0 } });
 }
 // The app answers a closed drawer (the arrow button, or Escape in the app page) with this message.
@@ -697,13 +738,16 @@ function selectPoint(i) {
   if (!sel) sel = { prev: { center: map.getCenter().toArray(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() } };
   sel.i = i; sel.px = px; sel.f = footprint(D.x[i], D.y[i], px.scan, px.track);
   setSpin(false);
+  hiddenPts = true;
+  setPts(false);
+  prefetchTiles(D.x[i], D.y[i]);
   drawSel();
   document.getElementById("back").style.display = "inline-block";
   try {
     if (!sessionStorage.getItem("earth_legend_seen")) { sessionStorage.setItem("earth_legend_seen", "1"); setLegend(true); }
   } catch (e) {}
   map.flyTo({ center: [D.x[i], D.y[i]], zoom: fitZoom(D.y[i], Math.max(px.scan, px.track)), pitch: 0, bearing: 0,
-              duration: 2500, essential: true, padding: { top: 0, bottom: 0, left: 0, right: drawerPad() } });
+              duration: FLY_MS, essential: true, padding: { top: 0, bottom: 0, left: 0, right: drawerPad() } });
   note("Back, Escape or a click elsewhere returns the view.");
   postPick(i);
 }

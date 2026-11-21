@@ -250,15 +250,23 @@ def spread_from_store(lat, lon, t, cell_id=None, path=None, hours=SPREAD_HOURS, 
     s, n, w, e = box(lat, lon, km)
     where = [("latitude", ">=", s), ("latitude", "<=", n), ("longitude", ">=", w), ("longitude", "<=", e),
              ("timestamp", "<=", t)]
+    from concurrent.futures import ThreadPoolExecutor
+
+    def read_box():
+        return ingest.read_recent(path, since=t - pd.Timedelta(hours=hours), columns=SPREAD_COLS, where=where)
+
+    def read_cell():
+        return ingest.read_recent(path, since=t - pd.Timedelta(days=CELL_DAYS), columns=["acq_date"],
+                                  where=[("cell_id", "==", cell_id), ("timestamp", "<=", t)])
     try:
-        near = ingest.read_recent(path, since=t - pd.Timedelta(hours=hours), columns=SPREAD_COLS, where=where)
+        with ThreadPoolExecutor(max_workers=2) as ex:        # the two reads side by side
+            f_box = ex.submit(read_box)
+            f_cell = ex.submit(read_cell) if cell_id is not None else None
+            near = f_box.result()
+            cells = f_cell.result() if f_cell is not None else None
         if near is None:
             return None
-        cdays = None
-        if cell_id is not None:
-            cells = ingest.read_recent(path, since=t - pd.Timedelta(days=CELL_DAYS), columns=["acq_date"],
-                                       where=[("cell_id", "==", cell_id), ("timestamp", "<=", t)])
-            cdays = int(pd.to_datetime(cells["acq_date"]).dt.normalize().nunique()) if cells is not None else None
+        cdays = int(pd.to_datetime(cells["acq_date"]).dt.normalize().nunique()) if cells is not None else None
     except Exception:
         return None
     return spread_from_frame(near, lat, lon, t, hours, km, cdays, source="own live store")

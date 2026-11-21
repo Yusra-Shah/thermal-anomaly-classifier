@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from ..config import ROOT
 
 CACHE_ROOT = ROOT / "data" / "cache"
-USER_AGENT = "fire-hotspot-classifier/1.0 (course project)"
+USER_AGENT = "fire-hotspot-classifier/1.0 (https://github.com/Yusra-Shah/thermal-anomaly-classifier)"
 TIMEOUT = 8                         # seconds for one request
 
 

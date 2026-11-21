@@ -10,6 +10,7 @@ click is not delayed again.
 import json
 import math
 import os
+import threading
 import time
 from functools import lru_cache
 
@@ -17,7 +18,7 @@ import numpy as np
 
 from .. import geo
 from ..config import ROOT
-from . import diskcache
+from . import diskcache, overpass
 
 WP_BASE = "https://data.worldpop.org/GIS/Population/Global_2000_2020_1km/2020"
 WP_DIR = ROOT / "data" / "cache" / "worldpop"
@@ -25,8 +26,6 @@ WP_SOURCE = "WorldPop 2020, 1 km grid (worldpop.org, CC BY 4.0)"
 MAX_BYTES = 120 * 1024 * 1024
 MAX_PIXELS = 60_000_000
 DOWNLOAD_BUDGET_S = 180
-OVERPASS = "https://overpass-api.de/api/interpreter"
-OVERPASS_DOWN_S = 1800
 KM_LAT = 110.574
 
 
@@ -93,6 +92,57 @@ def download(iso3, get=None, cache_dir=None, budget_s=DOWNLOAD_BUDGET_S):
     return f
 
 
+_downloads = {}                 # iso3 -> thread, so that one country is downloaded once at a time
+_downloads_lock = threading.Lock()
+
+
+def warm(cc, get=None, cache_dir=None):
+    """Start the download of a country's grid in the background (once) and return at once. The population section
+    of the same click joins this download instead of starting another."""
+    iso3 = iso3_of(cc)
+    if not iso3 or raster_file(iso3, cache_dir).exists():
+        return None
+    with _downloads_lock:
+        t = _downloads.get(iso3)
+        if t is not None and t.is_alive():
+            return t
+        err = {}
+
+        def run():
+            try:
+                download(iso3, get, cache_dir)
+            except Exception as e:
+                err["why"] = str(e) if isinstance(e, RuntimeError) else type(e).__name__
+
+        t = threading.Thread(target=run, daemon=True, name=f"worldpop-{iso3}")
+        t.err = err
+        _downloads[iso3] = t
+        t.start()
+        return t
+
+
+def warm_many(codes, limit=5, get=None, cache_dir=None):
+    """Warm the population grids of the first `limit` countries of a list (the countries of the current view, most
+    detections first) one after the other in a background thread, after the page is drawn. Returns the thread, or None
+    when every grid is already on disk."""
+    todo = [c for c in dict.fromkeys(codes) if iso3_of(c) and not raster_file(iso3_of(c), cache_dir).exists()][:limit]
+    if not todo:
+        return None
+
+    def run():
+        for cc in todo:
+            try:
+                t = warm(cc, get, cache_dir)
+                if t is not None:
+                    t.join()
+            except Exception:
+                pass
+
+    t = threading.Thread(target=run, daemon=True, name="worldpop-view")
+    t.start()
+    return t
+
+
 def _read(path):
     """(grid with nodata as 0, x0, y0, sx, sy) of a country raster."""
     from PIL import Image
@@ -144,7 +194,13 @@ def population(cc, lat, lon, get=None, cache_dir=None):
     if not iso3:
         return {"unavailable": "country not known for this point"}
     try:
-        f = download(iso3, get, cache_dir)
+        f = raster_file(iso3, cache_dir)
+        if not f.exists():
+            t = warm(cc, get, cache_dir)
+            if t is not None:
+                t.join()
+            if not f.exists():
+                raise RuntimeError(getattr(t, "err", {}).get("why", "population grid download failed"))
         arr, x0, y0, sx, sy = _read(f)
     except RuntimeError as e:
         return {"unavailable": f"population grid not available ({e})"}
@@ -175,31 +231,30 @@ def nearest_place(lat, lon, searcher=None):
             "direction": compass(bearing_deg(lat, lon, plat, plon))}
 
 
-def buildings(lat, lon, get=None, cache_dir=None):
-    """Count of buildings within 1 km from OpenStreetMap Overpass, or {"unavailable": reason}. A failure is
-    remembered for 30 minutes."""
+def buildings(lat, lon, get=None, cache_dir=None, pause=overpass.PAUSE_S, sleep=time.sleep):
+    """Count of buildings within 1 km from OpenStreetMap (two Overpass mirrors in order), or {"unavailable":
+    reason}. A failed mirror is remembered for 10 minutes."""
     key = f"{round(lat, 3):.3f}_{round(lon, 3):.3f}"
     hit = diskcache.read("buildings", key, ttl=7 * 86400, root=cache_dir)
     if hit and "count" in hit:
         return hit
-    if diskcache.read("buildings", "_down", ttl=OVERPASS_DOWN_S, root=cache_dir):
-        return {"unavailable": "OpenStreetMap Overpass did not answer a moment ago, not asked again for 30 minutes"}
     q = f'[out:json][timeout:8];(way["building"](around:1000,{lat:.5f},{lon:.5f}););out count;'
     try:
-        r = (get or diskcache.http_get)(OVERPASS, params={"data": q})
-        tags = r.json()["elements"][0]["tags"]
-        out = {"count": int(tags.get("ways", 0)), "source": "OpenStreetMap contributors (ODbL), via Overpass",
-               "fetched_at": diskcache.now_text(),
+        tags = overpass.query(q, get, cache_dir, pause=pause, sleep=sleep)["elements"][0]["tags"]
+        out = {"count": int(tags.get("ways", 0)), "source": overpass.SOURCE, "fetched_at": diskcache.now_text(),
                "note": "OpenStreetMap building coverage varies, a low count can mean unmapped buildings."}
     except Exception as e:
-        diskcache.write("buildings", "_down", {"at": diskcache.now_text()}, root=cache_dir)
         why = str(e) if isinstance(e, RuntimeError) else type(e).__name__
-        return {"unavailable": f"OpenStreetMap Overpass did not answer ({why})"}
+        return {"unavailable": why}
     diskcache.write("buildings", key, out, root=cache_dir)
     return out
 
 
-def describe(cc, lat, lon, get=None, cache_dir=None, overpass_get=None, searcher=None):
-    """People and buildings section. A dict whose parts that failed carry their reason."""
-    return {"population": population(cc, lat, lon, get, cache_dir), "place": nearest_place(lat, lon, searcher),
-            "buildings": buildings(lat, lon, overpass_get, cache_dir)}
+def describe(cc, lat, lon, get=None, cache_dir=None, overpass_get=None, searcher=None, out=None):
+    """People and buildings section. A dict whose parts that failed carry their reason. Parts are written into out
+    (when given) as soon as each one is made, so a caller that stops waiting still has the finished ones."""
+    out = {} if out is None else out
+    out["population"] = population(cc, lat, lon, get, cache_dir)
+    out["place"] = nearest_place(lat, lon, searcher)
+    out["buildings"] = buildings(lat, lon, overpass_get, cache_dir)
+    return out

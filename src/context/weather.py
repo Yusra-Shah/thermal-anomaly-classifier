@@ -24,7 +24,7 @@ def compass(deg):
 
 
 def _key(lat, lon, day):
-    return f"{round(lat, 1):.1f}_{round(lon, 1):.1f}_{day}"
+    return f"{round(lat / 0.05) * 0.05:.2f}_{round(lon / 0.05) * 0.05:.2f}_{day}"
 
 
 def fetch_series(lat, lon, day, get=None, cache_dir=None):

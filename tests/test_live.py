@@ -288,11 +288,28 @@ LAND_OFFLINE = (False, "offline test")
 CONTEXT_OFFLINE = {k: {"unavailable": "offline test"} for k in ("land", "weather", "exposure", "response")}
 
 
+def open_tab(at, label):
+    """Open another tab of the app: only the open tab is run, so its widgets exist after this."""
+    at.session_state["main_tabs"] = label
+    at.run()
+    return at
+
+
 def run_app(tmp, key, setup=None, land=LAND_OFFLINE, context=CONTEXT_OFFLINE):
     from streamlit.testing.v1 import AppTest
     import streamlit as st
-    from src.context import landcover, sections
-    sections.fetch_all = lambda row, hooks=None: dict(context)      # the panel sources never reach the network in tests
+    from src.context import landcover, people, sections
+    people.warm_many = lambda *a, **k: None                 # no population download in tests
+    # the panel sources never reach the network in tests: the real fetcher with canned answers
+    sections.start = lambda row, hooks=None, cap=sections.SECTION_CAP_S, with_spread=False: sections.Fetcher(row, hooks={
+        "spread": lambda *a, **k: context.get("spread", {"unavailable": "offline test"}),
+        "land": lambda *a, **k: context["land"], "weather": lambda *a, **k: context["weather"],
+        "population": lambda *a, **k: context["exposure"].get("population", context["exposure"]),
+        "place": lambda *a, **k: context["exposure"].get("place", context["exposure"]),
+        "buildings": lambda *a, **k: context["exposure"].get("buildings", context["exposure"]),
+        "services": lambda lat, lon, out=None: {l: context["response"].get("services", {}).get(l, context["response"])
+                                                for l in ("Fire station", "Hospital", "Police station")}},
+        cap=cap, with_spread=with_spread)
     landcover.reachable = lambda fetch=None: land          # the land cover filter never reaches the network in tests
     st.cache_data.clear()                      # keep memory flat across many AppTest runs
     st.cache_resource.clear()
@@ -418,6 +435,29 @@ def test_earth_footprint():
         assert hook in page, hook
     assert earth.MAX_POINTS == 20_000                                        # the cap is unchanged
     print("click footprint test passed")
+
+
+def test_earth_page_speed_settings():
+    """The click is made fast: prefetch of the target tiles, a 1.2 second flight, no raster fade, a larger tile cache,
+    the flat projection when zoomed in, circles hidden while a detection is selected, and the live footprint size."""
+    from src import earth
+    n = 3
+    base = pd.DataFrame({
+        "longitude": np.linspace(70, 71, n), "latitude": np.linspace(30, 31, n), "p_static": np.full(n, 0.1),
+        "pred_static": [0, 1, 0], "bright_ti4": np.full(n, 330.0), "frp": np.full(n, 0.8), "cc": ["PK"] * n,
+        "admin1": ["Punjab"] * n, "acq_date": pd.to_datetime(["2026-11-20"] * n),
+        "scan": [0.43, 0.43, 0.45], "track": [0.39, 0.4, 0.38]})
+    data, _ = earth.payload(base, np.zeros(n, dtype=int))
+    assert data["sc"] == [0.43, 0.43, 0.45] and data["tr"] == [0.39, 0.4, 0.38]            # live: the detection's own size
+    page = earth.html(data, None, {"sel": None, "provs": None, "prov": None}, "Model prediction", "s", live_source=True)
+    assert page.count('"raster-fade-duration": 0') == 3 and "fadeDuration: 0" in page
+    assert "maxTileCacheSize: 600" in page and "FLY_MS = 1200" in page and "duration: FLY_MS" in page
+    assert "duration: 2500" not in page and "duration: 2000," not in page.split("function clearSel")[1][:900]
+    for hook in ("function syncProjection(", "FLAT_ABOVE = 6", "GLOBE_BELOW = 5.5", 'map.setProjection({ type: flat ? "mercator" : "globe" })',
+                 "function prefetchTiles(", "[[16, 1], [17, 0], [15, 0], [14, 0]]", "function setPts(", "hiddenPts = true",
+                 "hiddenPts = false", "Maximum zoom"):
+        assert hook in page, hook
+    print("earth page speed settings test passed")
 
 
 def test_app_live(tmp):
@@ -800,6 +840,7 @@ def suite_unit(tmp):
     test_earth_select()
     test_earth_focus()
     test_earth_footprint()
+    test_earth_page_speed_settings()
 
 
 def test_app_front(tmp):
@@ -828,8 +869,7 @@ def test_app_front(tmp):
     assert [t.label for t in at.tabs] == ["Earth", "Data and features", "Why a spot is static", "Classify a new file",
                                           "Model metrics", "Results"]       # Map is gone, Earth is first, data second
     heads = [h.value for h in at.subheader]
-    for want in ("Data sources", "Labels", "Regions", "Features", "Split and checks", "Live store"):
-        assert want in heads, heads
+    assert "Data sources" not in heads                                      # only the open tab (Earth) is run
     assert at.radio(key="earth_source").value == LIVE_SRC                   # live is the default source
     assert at.radio(key="earth_source").options == [LIVE_SRC, ARCHIVE_SRC]
     assert at.radio(key="earth_model").value == HISTORY_TIER                # Earth's own tier, history by default
@@ -838,8 +878,15 @@ def test_app_front(tmp):
     assert not at.checkbox(key="earth_unc_l").value                         # Include uncertain is off
     assert "Detections of the last 24 hours, classified by the model" in [h.value for h in at.subheader]
     assert any(b.key == "update_live" and b.label == "Update live data" for b in at.button)
+    open_tab(at, "Data and features")                                       # the Data and features tab, run on demand
+    assert not at.exception, [e.value for e in at.exception]
+    heads = [h.value for h in at.subheader]
+    for want in ("Data sources", "Labels", "Regions", "Features", "Split and checks", "Live store"):
+        assert want in heads, heads
+    open_tab(at, "Classify a new file")
     caps = [c.value for c in at.caption]
     assert any("Instant by default" in c and "no past detections" in c and "30 days or more" in c for c in caps), caps
+    open_tab(at, "Earth")
     at.radio(key="earth_hours").set_value(72).run()
     assert "Detections of the last 72 hours, classified by the model" in [h.value for h in at.subheader]
     legend = page_html(at)
@@ -950,6 +997,8 @@ def test_app_classify(tmp):
         gc.collect()
         at = run_app(tmp, None)
         assert not at.exception, [e.value for e in at.exception]
+        open_tab(at, "Classify a new file")                                      # only the open tab is run
+        assert not at.exception, [e.value for e in at.exception]
         assert not at.get("deck_gl_json_chart")                                  # the flat map is gone
         pages = [e.proto.srcdoc for e in at.get("iframe") if '"ch":"u"' in e.proto.srcdoc]
         assert len(pages) == 1
@@ -978,6 +1027,8 @@ def test_app_classify(tmp):
         at = None
         gc.collect()
         at = run_app(tmp, None)
+        assert not at.exception, [e.value for e in at.exception]
+        open_tab(at, "Classify a new file")
         assert not at.exception, [e.value for e in at.exception]
         total = [m for m in at.metric if m.label == "Detections in Earth"][-1].value
         drawn = [m for m in at.metric if m.label == "Circles drawn"][-1].value
@@ -1072,6 +1123,68 @@ def test_app_context(tmp):
     print("panel context test passed")
 
 
+def test_app_context_pending(tmp):
+    """A slow source shows Loading while the others are already there, then fills in when it answers, and a source that
+    passes the ten second limit shows as unavailable, timed out."""
+    import threading
+    from src import ingest
+    from src.context import sections
+    from tests import fake_feed
+    live.LIVE_DIR = Path(tmp)
+    ingest.run_once("fake", fetch=fake_feed.fetch_factory(fake_feed.masters(10)), sleep=lambda s: None,
+                    log=lambda *a: None, limiter=fake_feed.fast_limiter())
+    store = ingest.read_store()
+    gate = threading.Event()
+    clock = {"t": 0.0}
+    weather = {"time": "2026-01-01 10:00:00", "temperature_c": 31.2, "humidity_pct": 22, "wind_kmh": 18.4,
+               "gust_kmh": 30.0, "wind_from": "NW", "wind_to": "SE", "rain_24h_mm": 0.0, "rain_72h_mm": 1.5,
+               "source": "Open-Meteo", "fetched_at": "2026-01-01T00:00:00Z", "note": "Weather note."}
+    land = {"class": "Cropland", "code": 40, "group": "Cropland", "around_1km": "", "fuel": "crop fuel: stubble",
+            "pixel_m": 10.0, "source": "ESA WorldCover 2021 v200", "fetched_at": "2026-01-01T00:00:00Z", "note": "n"}
+    made = []
+
+    def start(row, hooks=None, cap=sections.SECTION_CAP_S, with_spread=False):
+        f = sections.Fetcher(row, hooks={
+            "spread": lambda *a, **k: {"unavailable": "x"},
+            "land": lambda *a, **k: land, "weather": lambda *a, **k: (gate.wait(20), weather)[1],
+            "population": lambda *a, **k: {"unavailable": "x"}, "place": lambda *a, **k: {"unavailable": "x"},
+            "buildings": lambda *a, **k: {"unavailable": "x"},
+            "services": lambda *a, **k: {l: {"unavailable": "x"} for l in ("Fire station", "Hospital", "Police station")}},
+            cap=cap, clock=lambda: sections_clock(), with_spread=with_spread)
+        made.append(f)
+        return f
+    base = time_now = None
+    import time as _t
+    t0 = _t.time()
+
+    def sections_clock():
+        return t0 + clock["t"]
+    at = run_app(tmp, None)
+    sections.start = start
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    row = store[store["timestamp"] >= now - pd.Timedelta(hours=24)].iloc[0]
+    pick = {"lat": round(float(row["latitude"]), 3), "lon": round(float(row["longitude"]), 3),
+            "date": f"{row['acq_date']:%Y-%m-%d}", "time": f"{row['timestamp']:%H:%M}", "sensor": row["sensor"]}
+    at.session_state["earth_sel_l"] = {"pick": pick, "view": at.session_state["earth_view_l"]}
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = " ".join([m.value for m in at.markdown] + [c.value for c in at.caption] + [w.value for w in at.text])
+    assert "Land cover at the pixel: Cropland" in text                       # the fast source is there at once
+    assert "Loading..." in text and "Rain in the 24 hours before" not in text   # the slow one is still loading
+    clock["t"] = 10.6                                                        # past the limit
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = " ".join([m.value for m in at.markdown] + [c.value for c in at.caption] + [w.value for w in at.text])
+    assert "unavailable: timed out" in text and "Land cover at the pixel: Cropland" in text
+    gate.set()                                                               # the late answer replaces the timed out one
+    _t.sleep(0.5)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = " ".join([m.value for m in at.markdown] + [c.value for c in at.caption] + [w.value for w in at.text])
+    assert "blowing toward SE" in text
+    print("panel pending test passed")
+
+
 def test_app_land(tmp):
     """Land cover context filter on the Earth tab: hidden with the reason, shown next to Detections, counts and proxy."""
     from src import earth
@@ -1125,7 +1238,7 @@ LC_OPTIONS_EXPECTED = ["All land cover", "Burning on cropland", "Burning on natu
 SUITES = {"unit": suite_unit, "app_store": test_app_store, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
           "app_earth": test_app_earth, "app_front": test_app_front, "app_classify": test_app_classify,
           "app_drawer": test_app_drawer, "app_land": test_app_land,
-          "app_context": test_app_context}
+          "app_context": test_app_context, "app_pending": test_app_context_pending}
 
 
 def main(names=None):
