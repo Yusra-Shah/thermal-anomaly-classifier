@@ -3,6 +3,8 @@
 Run from the project root:  python -m tests.test_live
 """
 import gc
+import sys
+import os
 import time
 import tempfile
 from pathlib import Path
@@ -296,9 +298,11 @@ def open_tab(at, label):
     return at
 
 
-def run_app(tmp, key, setup=None, land=LAND_OFFLINE, context=CONTEXT_OFFLINE):
+def run_app(tmp, key, setup=None, land=LAND_OFFLINE, context=CONTEXT_OFFLINE, analysis=False):
     from streamlit.testing.v1 import AppTest
     import streamlit as st
+    from src import config
+    config.SHOW_ANALYSIS_TABS = analysis                    # the hidden analysis tabs, off unless a test asks
     from src.context import landcover, people, sections
     people.warm_many = lambda *a, **k: None                 # no population download in tests
     from src.context import landtable
@@ -869,8 +873,8 @@ def test_app_front(tmp):
     gc.collect()
     at = run_app(tmp, "fake")
     assert not at.exception, at.exception
-    assert [t.label for t in at.tabs] == ["Earth", "Data and features", "Why a spot is static", "Classify a new file",
-                                          "Model metrics", "Results"]       # Map is gone, Earth is first, data second
+    assert [t.label for t in at.tabs] == ["Earth", "Data and features", "Classify a new file",
+                                          "Results"]       # Map is gone, Earth is first, data second, two tabs hidden
     heads = [h.value for h in at.subheader]
     assert "Data sources" not in heads                                      # only the open tab (Earth) is run
     assert at.radio(key="earth_source").value == LIVE_SRC                   # live is the default source
@@ -1188,6 +1192,62 @@ def test_app_context_pending(tmp):
     print("panel pending test passed")
 
 
+def all_text(at):
+    """Every piece of text the page shows, for checks that something is not mentioned."""
+    parts = []
+    for group in (at.markdown, at.caption, at.text, at.info, at.warning, at.error, at.success, at.subheader, at.header, at.title):
+        parts += [str(getattr(e, "value", "")) for e in group]
+    parts += [t.label for t in at.tabs] + [str(r.label) for r in at.radio] + [str(b.label) for b in at.button]
+    return " ".join(parts)
+
+
+def test_app_tabs(tmp):
+    """The tabs Why a spot is static and Model metrics are hidden while the switch is off, and nothing points to them;
+    with the switch on both are there and render."""
+    import subprocess
+    from src import config
+    hidden = ("Why a spot is static", "Model metrics")
+    four = ["Earth", "Data and features", "Classify a new file", "Results"]
+    assert config.SHOW_ANALYSIS_TABS is False                                       # the default
+    at = run_app(tmp, None)
+    assert not at.exception, [e.value for e in at.exception]
+    assert [t.label for t in at.tabs] == four
+    assert not any(h in all_text(at) for h in hidden)
+    assert "Pick a location that was flagged repeatedly" not in all_text(at)       # their code did not run
+    for tab in ("Data and features", "Classify a new file", "Results"):             # no text on the other tabs points to them
+        open_tab(at, tab)
+        assert not at.exception, (tab, [e.value for e in at.exception])
+        assert not any(h in all_text(at) for h in hidden), tab
+    at.session_state["main_tabs"] = "Model metrics"                                  # a stale choice of a hidden tab
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    # the switch on: both tabs are created, in their old places, and render
+    at = run_app(tmp, None, analysis=True)
+    try:
+        assert not at.exception, [e.value for e in at.exception]
+        assert [t.label for t in at.tabs] == ["Earth", "Data and features", "Why a spot is static", "Classify a new file",
+                                              "Model metrics", "Results"]
+        open_tab(at, "Why a spot is static")
+        assert not at.exception, [e.value for e in at.exception]
+        assert "Pick a location that was flagged repeatedly" in all_text(at)
+        open_tab(at, "Model metrics")
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("All regions" in h.value for h in at.subheader) or at.dataframe       # the table of the tab
+    finally:
+        config.SHOW_ANALYSIS_TABS = False
+    # the environment variable sets the switch
+    code = "from src import config; print(config.SHOW_ANALYSIS_TABS)"
+    root = str(Path(__file__).resolve().parents[1])
+    for value, want in (("1", "True"), ("true", "True"), ("0", "False"), ("", "False")):
+        out = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True,
+                             env={**os.environ, "SHOW_ANALYSIS_TABS": value}).stdout.strip()
+        assert out == want, (value, out)
+    env = {k: v for k, v in os.environ.items() if k != "SHOW_ANALYSIS_TABS"}
+    out = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, env=env).stdout.strip()
+    assert out == "False"                                                            # not set: off
+    print("analysis tabs switch test passed")
+
+
 def test_app_land(tmp):
     """Land cover context filter on the Earth tab: hidden with the reason; the first use draws the globe at once without
     the filter and prepares the cells in the background; then the filter, counts and proxy sentence; and band, selector
@@ -1264,7 +1324,8 @@ LC_OPTIONS_EXPECTED = ["All land cover", "Burning on cropland", "Burning on natu
 SUITES = {"unit": suite_unit, "app_store": test_app_store, "app_live": test_app_live, "app_demo": test_app_demo, "app_geo": test_app_geo,
           "app_earth": test_app_earth, "app_front": test_app_front, "app_classify": test_app_classify,
           "app_drawer": test_app_drawer, "app_land": test_app_land,
-          "app_context": test_app_context, "app_pending": test_app_context_pending}
+          "app_context": test_app_context, "app_pending": test_app_context_pending,
+          "app_tabs": test_app_tabs}
 
 
 def main(names=None):

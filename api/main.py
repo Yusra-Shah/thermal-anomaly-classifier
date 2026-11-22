@@ -1,4 +1,4 @@
-"""Prediction API for the fire hotspot classifier.
+"""Prediction API for the thermal anomaly classifier.
 
 Run from the project root:  uvicorn api.main:app
 
@@ -38,7 +38,7 @@ NOTE = ("Live results are unvalidated: the models were trained on Suomi NPP arch
         "and NOAA-21 archive data, and live data has no type flag, so they are not retrained from it.")
 CONFIDENCE = {"l", "n", "h", "low", "nominal", "high"}
 
-app = FastAPI(title="Fire hotspot classifier", version="1.0")
+app = FastAPI(title="Thermal Anomaly Classifier", version="1.0")
 
 
 @app.exception_handler(RequestValidationError)

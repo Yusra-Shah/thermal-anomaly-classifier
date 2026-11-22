@@ -64,7 +64,7 @@ def test_http_get_carries_no_address(monkeypatch):
         return Resp({"ok": 1})
     monkeypatch.setattr(requests, "get", spy)
     diskcache.http_get("https://example.org/x")
-    assert seen["timeout"] == 8 and "fire-hotspot" in seen["headers"]["User-Agent"]
+    assert seen["timeout"] == 8 and "thermal-anomaly" in seen["headers"]["User-Agent"]
 
 
 # ------------------------------------------------------------------ weather
@@ -261,7 +261,7 @@ def test_overpass_failures_are_cached_ten_minutes(tmp_path):
 
 
 def test_user_agent_names_the_project_page():
-    assert diskcache.USER_AGENT == ("fire-hotspot-classifier/1.0 "
+    assert diskcache.USER_AGENT == ("thermal-anomaly-classifier/1.0 "
                                     "(https://github.com/Yusra-Shah/thermal-anomaly-classifier)")
 
 

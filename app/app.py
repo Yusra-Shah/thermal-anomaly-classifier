@@ -17,13 +17,13 @@ sys.path.insert(0, str(ROOT))
 
 from src import datainfo, earth, geo, ingest, live, serve, uncertain, updater  # noqa: E402
 from src.context import clusters, detail, landcover, landtable, sections  # noqa: E402
-from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR  # noqa: E402
+from src.config import MODEL_DIR, PROC_DIR, REPORT_DIR, SHOW_ANALYSIS_TABS  # noqa: E402
 from src.data import REQUIRED, clean, normalize_columns  # noqa: E402
 from src.features import add_features  # noqa: E402
 from src.history import add_history, add_history_v2  # noqa: E402
 from src.label import add_cell  # noqa: E402
 
-st.set_page_config(page_title="Fire Hotspot Classifier", layout="wide")
+st.set_page_config(page_title="Thermal Anomaly Classifier", layout="wide")
 
 TAG = "headline"
 MAX_POINTS = 30_000
@@ -327,7 +327,7 @@ def live_source(cols, live_tier, thr, col):
 
 
 # ---------------------------------------------------------------- sidebar
-st.title("Fire Hotspot Classifier")
+st.title("Thermal Anomaly Classifier")
 st.caption("NASA FIRMS VIIRS detections, classified as likely fire or likely static heat source.")
 
 tier = st.sidebar.radio("Model tier", [INSTANT, HISTORY])
@@ -363,9 +363,15 @@ else:
     st.info("The history tier needs past detections of the same place and works best with at least "
             f"{MIN_HISTORY_DAYS} days of data. It predicts NASA's repeat based static flag.")
 
-TAB_NAMES = ["Earth", "Data and features", "Why a spot is static", "Classify a new file", "Model metrics", "Results"]
-tab_earth, tab_data, tab_spot, tab_live, tab_metrics, tab_results = st.tabs(TAB_NAMES, key="main_tabs",
-                                                                           on_change="rerun")
+# "Why a spot is static" and "Model metrics" exist only while SHOW_ANALYSIS_TABS is on (src/config.py, or the
+# environment variable of the same name); off, they are not created and their code does not run.
+SPOT_TAB, METRICS_TAB = "Why a spot is static", "Model metrics"
+TAB_NAMES = (["Earth", "Data and features"] + ([SPOT_TAB] if SHOW_ANALYSIS_TABS else []) + ["Classify a new file"]
+             + ([METRICS_TAB] if SHOW_ANALYSIS_TABS else []) + ["Results"])
+TABS = dict(zip(TAB_NAMES, st.tabs(TAB_NAMES, key="main_tabs", on_change="rerun")))
+tab_earth, tab_data, tab_live, tab_results = (TABS[n] for n in ("Earth", "Data and features", "Classify a new file",
+                                                                 "Results"))
+tab_spot, tab_metrics = TABS.get(SPOT_TAB), TABS.get(METRICS_TAB)
 
 def classify_tab():
     """Upload a FIRMS CSV and see it on the same globe as the Earth tab (sidebar tier, warnings, counters)."""
@@ -427,117 +433,120 @@ def world_section():
                "label, not independent truth. DR Congo has almost no static detections, so its scores are noisy.")
 
 
-with tab_spot:
-    if tab_spot.open:
-        scored = load_scored(f"scored_{TAG}.parquet" if tier == INSTANT else "scored_history.parquet")
-        if scored is None:
-            st.warning("No scored archive found for this tier. Run `python -m src.train --tag headline` (instant) "
-                       "or `python -m src.final_history` (with history) first.")
-        else:
-            scored = scored.assign(p_static=scored[prob_col], pred_static=(scored[prob_col] >= thr).astype(int))
-            st.write("Pick a location that was flagged repeatedly and see it appear day after day.")
-            cells = (scored.groupby("cell_id")["acq_date"].nunique().sort_values(ascending=False).head(50))
-            if len(cells):
-                cid = st.selectbox("Most repeated locations (cell id, days seen)",
-                                   cells.index, format_func=lambda c: f"{c}  ({cells[c]} days)")
-                sub = scored[scored["cell_id"] == cid].sort_values("timestamp")
-                st.dataframe(sub[["timestamp", "bright_ti4", "frp", "p_static", "pred_static"]]
-                             .reset_index(drop=True), width="stretch")
-                per_day = sub.groupby(sub["acq_date"].dt.date).size()
-                st.bar_chart(per_day)
+if SHOW_ANALYSIS_TABS:
+    with tab_spot:
+        if tab_spot.open:
+            scored = load_scored(f"scored_{TAG}.parquet" if tier == INSTANT else "scored_history.parquet")
+            if scored is None:
+                st.warning("No scored archive found for this tier. Run `python -m src.train --tag headline` (instant) "
+                           "or `python -m src.final_history` (with history) first.")
+            else:
+                scored = scored.assign(p_static=scored[prob_col], pred_static=(scored[prob_col] >= thr).astype(int))
+                st.write("Pick a location that was flagged repeatedly and see it appear day after day.")
+                cells = (scored.groupby("cell_id")["acq_date"].nunique().sort_values(ascending=False).head(50))
+                if len(cells):
+                    cid = st.selectbox("Most repeated locations (cell id, days seen)",
+                                       cells.index, format_func=lambda c: f"{c}  ({cells[c]} days)")
+                    sub = scored[scored["cell_id"] == cid].sort_values("timestamp")
+                    st.dataframe(sub[["timestamp", "bright_ti4", "frp", "p_static", "pred_static"]]
+                                 .reset_index(drop=True), width="stretch")
+                    per_day = sub.groupby(sub["acq_date"].dt.date).size()
+                    st.bar_chart(per_day)
 
 
-with tab_metrics:
-    if tab_metrics.open:
-        world_section()
-        mpath = REPORT_DIR / f"metrics_{TAG}.json"
-        if mpath.exists():
-            m = json.loads(mpath.read_text())
-            st.write(f"Best instant model: **{m['best_model']}**. Window {m['date_min']} to {m['date_max']}, "
-                     f"{m['rows']:,} detections, {m['static_share']:.1%} static.")
-            st.dataframe(pd.read_csv(REPORT_DIR / f"model_comparison_{TAG}.csv", index_col=0))
-            a, b = st.columns(2)
-            if (REPORT_DIR / f"confusion_matrix_{TAG}.png").exists():
-                a.image(str(REPORT_DIR / f"confusion_matrix_{TAG}.png"))
-            if (REPORT_DIR / f"feature_importance_{TAG}.png").exists():
-                b.image(str(REPORT_DIR / f"feature_importance_{TAG}.png"))
-            st.caption("Scores are on locations the model never saw during training. The label is NASA's "
-                       "own type flag. The confusion matrix uses the saved threshold.")
-        upath = REPORT_DIR / "uncertain_eval.csv"
-        if upath.exists():
-            st.subheader("Uncertain band")
-            u = pd.read_csv(upath)
-            cols = ["tier", "split", "definition", "t_low", "t_high", "coverage", "decided_accuracy",
-                    "static_precision_decided", "static_recall_decided", "fire_npv_decided",
-                    "errors_in_uncertain_share"]
-            st.dataframe(u[~u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
-                         hide_index=True)
-            if (REPORT_DIR / "uncertain_curve.png").exists():
-                st.image(str(REPORT_DIR / "uncertain_curve.png"))
-            st.caption("Scores are calibrated. Static at or above t_high, fire at or below t_low, uncertain in "
-                       "between, with the highest coverage whose accuracy on decided out of fold training points is "
-                       "0.96 (default) or 0.98 (strict). Precision and recall are on the decided points, "
-                       "errors_in_uncertain_share is the share of the forced binary errors that fall in the uncertain "
-                       "band. NASA's flag is the label, not independent truth.")
-            with st.expander("Earlier precision based definition (negative result)"):
-                st.dataframe(u[u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
+if SHOW_ANALYSIS_TABS:
+    with tab_metrics:
+        if tab_metrics.open:
+            world_section()
+            mpath = REPORT_DIR / f"metrics_{TAG}.json"
+            if mpath.exists():
+                m = json.loads(mpath.read_text())
+                st.write(f"Best instant model: **{m['best_model']}**. Window {m['date_min']} to {m['date_max']}, "
+                         f"{m['rows']:,} detections, {m['static_share']:.1%} static.")
+                st.dataframe(pd.read_csv(REPORT_DIR / f"model_comparison_{TAG}.csv", index_col=0))
+                a, b = st.columns(2)
+                if (REPORT_DIR / f"confusion_matrix_{TAG}.png").exists():
+                    a.image(str(REPORT_DIR / f"confusion_matrix_{TAG}.png"))
+                if (REPORT_DIR / f"feature_importance_{TAG}.png").exists():
+                    b.image(str(REPORT_DIR / f"feature_importance_{TAG}.png"))
+                st.caption("Scores are on locations the model never saw during training. The label is NASA's "
+                           "own type flag. The confusion matrix uses the saved threshold.")
+            upath = REPORT_DIR / "uncertain_eval.csv"
+            if upath.exists():
+                st.subheader("Uncertain band")
+                u = pd.read_csv(upath)
+                cols = ["tier", "split", "definition", "t_low", "t_high", "coverage", "decided_accuracy",
+                        "static_precision_decided", "static_recall_decided", "fire_npv_decided",
+                        "errors_in_uncertain_share"]
+                st.dataframe(u[~u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
                              hide_index=True)
-                if (REPORT_DIR / "uncertain_curve_precision_based.png").exists():
-                    st.image(str(REPORT_DIR / "uncertain_curve_precision_based.png"))
-                st.caption("Static precision at least 0.90 and fire side precision at least 0.95. Fire is the "
-                           "majority class, so the fire side target is almost always met, the two ranges overlap "
-                           "for the history tier and its band is empty. Kept as a documented negative result.")
-        parts = []
-        for sat_file, sat_name in (("noaa20_transfer.csv", "NOAA-20"), ("noaa21_transfer.csv", "NOAA-21")):
-            if (REPORT_DIR / sat_file).exists():
-                parts.append(pd.read_csv(REPORT_DIR / sat_file).assign(satellite=sat_name))
-        if parts:
-            st.subheader("NOAA-20 and NOAA-21 transfer")
-            t = pd.concat(parts, ignore_index=True)
-            t = t[~t["test_set"].str.contains("reference") | (t["satellite"] == parts[0]["satellite"].iloc[0])]
-            cols = ["satellite", "model", "test_set", "region", "n", "static_share", "pr_auc", "majority_pr_auc",
-                    "precision", "recall", "f1", "brier_calibrated", "ece_calibrated", "uncertain_share_0.96",
-                    "uncertain_share_0.98"]
-            cols = [c for c in cols if c in t]
-            st.dataframe(t[t["region"] == "all"][cols].round(3), width="stretch", hide_index=True)
-            with st.expander("Per region"):
-                st.dataframe(t[t["region"] != "all"][cols].round(3), width="stretch", hide_index=True)
-            st.caption("Trained on Suomi NPP cells, tested on NOAA-20 and NOAA-21 archive data with the Suomi NPP "
-                       "thresholds, calibrators and bands unchanged. Cell disjoint means cells that were not Suomi NPP "
-                       "training cells. Not cell disjoint is easier, those places were seen in training. The satellites "
-                       "observe the same places within a short time of each other and the label is NASA's repeat based "
-                       "flag, so this is a transfer between near twins, not independent truth. The Suomi NPP reference "
-                       "rows are shown once.")
-
-        strat = REPORT_DIR / "daynight_stratified.csv"
-        if strat.exists():
-            st.subheader("Day and night")
-            sdf = pd.read_csv(strat)
-            base = pd.read_csv(REPORT_DIR / "daynight_vs_baseline.csv") if (REPORT_DIR / "daynight_vs_baseline.csv").exists() else None
-            if base is not None:
-                st.caption("Static PR-AUC and F1 over all detections against a baseline that calls every night "
-                           "detection static.")
-                st.dataframe(base[["split", "tier", "pr_auc", "baseline_pr_auc", "pr_auc_above_baseline", "f1",
-                                   "baseline_f1", "f1_above_baseline"]].round(3), width="stretch", hide_index=True)
-            with st.expander("Stratified by day and night, every tier"):
-                cols = ["split", "tier", "stratum", "n", "static_share", "majority_pr_auc", "pr_auc", "precision",
-                        "recall", "f1"]
-                st.dataframe(sdf[cols].round(3), width="stretch", hide_index=True)
-                st.caption("Day and night detections are scored on their own, each with its own majority baseline "
-                           "(the static share of that stratum). The night baseline predicts static for every night "
-                           "detection. NASA's flag is the label, not independent truth.")
-        abl = REPORT_DIR / "daynight_ablation.csv"
-        if abl.exists():
-            st.subheader("Instant tier ablation")
-            adf = pd.read_csv(abl)
-            st.dataframe(adf[adf["stratum"] == "all"][["variant", "n_features", "pr_auc", "precision", "recall", "f1",
-                                                        "threshold"]].round(3), width="stretch", hide_index=True)
-            if (REPORT_DIR / "daynight_permutation.csv").exists():
-                with st.expander("Permutation importance on the held out split"):
-                    st.dataframe(pd.read_csv(REPORT_DIR / "daynight_permutation.csv").round(4), width="stretch",
+                if (REPORT_DIR / "uncertain_curve.png").exists():
+                    st.image(str(REPORT_DIR / "uncertain_curve.png"))
+                st.caption("Scores are calibrated. Static at or above t_high, fire at or below t_low, uncertain in "
+                           "between, with the highest coverage whose accuracy on decided out of fold training points is "
+                           "0.96 (default) or 0.98 (strict). Precision and recall are on the decided points, "
+                           "errors_in_uncertain_share is the share of the forced binary errors that fall in the uncertain "
+                           "band. NASA's flag is the label, not independent truth.")
+                with st.expander("Earlier precision based definition (negative result)"):
+                    st.dataframe(u[u["definition"].str.startswith("precision")][cols].round(3), width="stretch",
                                  hide_index=True)
-            st.caption("XGBoost with 100 trees on the grouped split, retrained without one group of features at a "
-                       "time, thresholds from out of fold training scores only.")
+                    if (REPORT_DIR / "uncertain_curve_precision_based.png").exists():
+                        st.image(str(REPORT_DIR / "uncertain_curve_precision_based.png"))
+                    st.caption("Static precision at least 0.90 and fire side precision at least 0.95. Fire is the "
+                               "majority class, so the fire side target is almost always met, the two ranges overlap "
+                               "for the history tier and its band is empty. Kept as a documented negative result.")
+            parts = []
+            for sat_file, sat_name in (("noaa20_transfer.csv", "NOAA-20"), ("noaa21_transfer.csv", "NOAA-21")):
+                if (REPORT_DIR / sat_file).exists():
+                    parts.append(pd.read_csv(REPORT_DIR / sat_file).assign(satellite=sat_name))
+            if parts:
+                st.subheader("NOAA-20 and NOAA-21 transfer")
+                t = pd.concat(parts, ignore_index=True)
+                t = t[~t["test_set"].str.contains("reference") | (t["satellite"] == parts[0]["satellite"].iloc[0])]
+                cols = ["satellite", "model", "test_set", "region", "n", "static_share", "pr_auc", "majority_pr_auc",
+                        "precision", "recall", "f1", "brier_calibrated", "ece_calibrated", "uncertain_share_0.96",
+                        "uncertain_share_0.98"]
+                cols = [c for c in cols if c in t]
+                st.dataframe(t[t["region"] == "all"][cols].round(3), width="stretch", hide_index=True)
+                with st.expander("Per region"):
+                    st.dataframe(t[t["region"] != "all"][cols].round(3), width="stretch", hide_index=True)
+                st.caption("Trained on Suomi NPP cells, tested on NOAA-20 and NOAA-21 archive data with the Suomi NPP "
+                           "thresholds, calibrators and bands unchanged. Cell disjoint means cells that were not Suomi NPP "
+                           "training cells. Not cell disjoint is easier, those places were seen in training. The satellites "
+                           "observe the same places within a short time of each other and the label is NASA's repeat based "
+                           "flag, so this is a transfer between near twins, not independent truth. The Suomi NPP reference "
+                           "rows are shown once.")
+
+            strat = REPORT_DIR / "daynight_stratified.csv"
+            if strat.exists():
+                st.subheader("Day and night")
+                sdf = pd.read_csv(strat)
+                base = pd.read_csv(REPORT_DIR / "daynight_vs_baseline.csv") if (REPORT_DIR / "daynight_vs_baseline.csv").exists() else None
+                if base is not None:
+                    st.caption("Static PR-AUC and F1 over all detections against a baseline that calls every night "
+                               "detection static.")
+                    st.dataframe(base[["split", "tier", "pr_auc", "baseline_pr_auc", "pr_auc_above_baseline", "f1",
+                                       "baseline_f1", "f1_above_baseline"]].round(3), width="stretch", hide_index=True)
+                with st.expander("Stratified by day and night, every tier"):
+                    cols = ["split", "tier", "stratum", "n", "static_share", "majority_pr_auc", "pr_auc", "precision",
+                            "recall", "f1"]
+                    st.dataframe(sdf[cols].round(3), width="stretch", hide_index=True)
+                    st.caption("Day and night detections are scored on their own, each with its own majority baseline "
+                               "(the static share of that stratum). The night baseline predicts static for every night "
+                               "detection. NASA's flag is the label, not independent truth.")
+            abl = REPORT_DIR / "daynight_ablation.csv"
+            if abl.exists():
+                st.subheader("Instant tier ablation")
+                adf = pd.read_csv(abl)
+                st.dataframe(adf[adf["stratum"] == "all"][["variant", "n_features", "pr_auc", "precision", "recall", "f1",
+                                                            "threshold"]].round(3), width="stretch", hide_index=True)
+                if (REPORT_DIR / "daynight_permutation.csv").exists():
+                    with st.expander("Permutation importance on the held out split"):
+                        st.dataframe(pd.read_csv(REPORT_DIR / "daynight_permutation.csv").round(4), width="stretch",
+                                     hide_index=True)
+                st.caption("XGBoost with 100 trees on the grouped split, retrained without one group of features at a "
+                           "time, thresholds from out of fold training scores only.")
+
 
 with tab_results:
     if tab_results.open:

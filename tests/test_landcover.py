@@ -286,7 +286,7 @@ def test_http_errors_carry_no_address(monkeypatch):
         return R(206)
     monkeypatch.setattr(requests, "get", spy)
     landcover.http_fetch(NAME, 5, 9)
-    assert seen["timeout"] == 8 and seen["headers"]["Range"] == "bytes=5-9" and "fire-hotspot" in seen["headers"]["User-Agent"]
+    assert seen["timeout"] == 8 and seen["headers"]["Range"] == "bytes=5-9" and "thermal-anomaly" in seen["headers"]["User-Agent"]
 
 
 def test_reachable_reports_the_class_only():

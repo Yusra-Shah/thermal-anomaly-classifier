@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,3 +42,9 @@ HOUR_FEATURE = "hour_utc"
 
 TARGET = "is_static"
 RANDOM_STATE = 42
+
+
+# The tabs "Why a spot is static" and "Model metrics" are hidden from the app. Set the environment variable
+# SHOW_ANALYSIS_TABS=1 (or change the default here) to show them again; while this is False they are not created
+# and their code does not run.
+SHOW_ANALYSIS_TABS = os.environ.get("SHOW_ANALYSIS_TABS", "").strip().lower() in ("1", "true", "yes", "on")
