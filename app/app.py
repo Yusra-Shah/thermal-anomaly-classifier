@@ -363,15 +363,16 @@ else:
     st.info("The history tier needs past detections of the same place and works best with at least "
             f"{MIN_HISTORY_DAYS} days of data. It predicts NASA's repeat based static flag.")
 
-# "Why a spot is static" and "Model metrics" exist only while SHOW_ANALYSIS_TABS is on (src/config.py, or the
-# environment variable of the same name); off, they are not created and their code does not run.
-SPOT_TAB, METRICS_TAB = "Why a spot is static", "Model metrics"
-TAB_NAMES = (["Earth", "Data and features"] + ([SPOT_TAB] if SHOW_ANALYSIS_TABS else []) + ["Classify a new file"]
-             + ([METRICS_TAB] if SHOW_ANALYSIS_TABS else []) + ["Results"])
+# The analysis tabs "Data and features", "Why a spot is static", "Model metrics" and "Results" exist only while
+# SHOW_ANALYSIS_TABS is on (src/config.py, or the environment variable of the same name); off, they are not created and
+# their code does not run, and the app shows the Earth and Classify tabs. On, the order is Earth, Data and features,
+# Why a spot is static, Classify a new file, Model metrics, Results.
+DATA_TAB, SPOT_TAB, METRICS_TAB, RESULTS_TAB = "Data and features", "Why a spot is static", "Model metrics", "Results"
+TAB_NAMES = (["Earth"] + ([DATA_TAB, SPOT_TAB] if SHOW_ANALYSIS_TABS else []) + ["Classify a new file"]
+             + ([METRICS_TAB, RESULTS_TAB] if SHOW_ANALYSIS_TABS else []))
 TABS = dict(zip(TAB_NAMES, st.tabs(TAB_NAMES, key="main_tabs", on_change="rerun")))
-tab_earth, tab_data, tab_live, tab_results = (TABS[n] for n in ("Earth", "Data and features", "Classify a new file",
-                                                                 "Results"))
-tab_spot, tab_metrics = TABS.get(SPOT_TAB), TABS.get(METRICS_TAB)
+tab_earth, tab_live = TABS["Earth"], TABS["Classify a new file"]
+tab_data, tab_spot, tab_metrics, tab_results = (TABS.get(n) for n in (DATA_TAB, SPOT_TAB, METRICS_TAB, RESULTS_TAB))
 
 def classify_tab():
     """Upload a FIRMS CSV and see it on the same globe as the Earth tab (sidebar tier, warnings, counters)."""
@@ -548,77 +549,78 @@ if SHOW_ANALYSIS_TABS:
                            "time, thresholds from out of fold training scores only.")
 
 
-with tab_results:
-    if tab_results.open:
-        st.subheader("Rule, instant and history results")
-        shown = False
+if SHOW_ANALYSIS_TABS:
+    with tab_results:
+        if tab_results.open:
+            st.subheader("Rule, instant and history results")
+            shown = False
 
-        ev = read_csv("history2_eval_a.csv")
-        if ev is not None:
-            shown = True
-            subset = st.selectbox("Test rows", list(ev["subset"].unique()))
-            d = ev[(ev["subset"] == subset)
-                   & (ev["setup"].str.startswith(("Rule", "B ", "D ")))
-                   & (ev["model"].isin(["Random Forest", "XGBoost", "XGBoost tuned"])
-                      | (ev["setup"] == "Rule"))]
-            d = d.assign(model=d["model"].where(d["setup"] != "Rule", "distinct_days_prior_30 >= k"))
-            cols = ["pr_auc_static", "precision_static", "recall_static", "f1_static"]
-            g = d.groupby(["setup", "model"], sort=False)[cols]
-            table = g.mean().round(3).astype(str) + " (" + g.std().round(3).astype(str) + ")"
-            table.index = [f"{setup}: {model}" for setup, model in table.index]
-            st.write("Five grouped splits, mean (std). Rule, B (instant + history v1) and D "
-                     "(instant + history v1 + v2).")
-            st.dataframe(table.rename(columns=dict(zip(cols, ["PR-AUC", "Precision", "Recall", "F1"]))))
-            rule_f1 = d[d["setup"] == "Rule"]["f1_static"].mean()
-            d_f1 = d[(d["setup"].str.startswith("D ")) & (d["model"] == "XGBoost")]["f1_static"].mean()
-            k1, k2 = st.columns(2)
-            k1.metric("Rule F1 (static)", f"{rule_f1:.3f}")
-            k2.metric("D XGBoost F1 (static)", f"{d_f1:.3f}")
+            ev = read_csv("history2_eval_a.csv")
+            if ev is not None:
+                shown = True
+                subset = st.selectbox("Test rows", list(ev["subset"].unique()))
+                d = ev[(ev["subset"] == subset)
+                       & (ev["setup"].str.startswith(("Rule", "B ", "D ")))
+                       & (ev["model"].isin(["Random Forest", "XGBoost", "XGBoost tuned"])
+                          | (ev["setup"] == "Rule"))]
+                d = d.assign(model=d["model"].where(d["setup"] != "Rule", "distinct_days_prior_30 >= k"))
+                cols = ["pr_auc_static", "precision_static", "recall_static", "f1_static"]
+                g = d.groupby(["setup", "model"], sort=False)[cols]
+                table = g.mean().round(3).astype(str) + " (" + g.std().round(3).astype(str) + ")"
+                table.index = [f"{setup}: {model}" for setup, model in table.index]
+                st.write("Five grouped splits, mean (std). Rule, B (instant + history v1) and D "
+                         "(instant + history v1 + v2).")
+                st.dataframe(table.rename(columns=dict(zip(cols, ["PR-AUC", "Precision", "Recall", "F1"]))))
+                rule_f1 = d[d["setup"] == "Rule"]["f1_static"].mean()
+                d_f1 = d[(d["setup"].str.startswith("D ")) & (d["model"] == "XGBoost")]["f1_static"].mean()
+                k1, k2 = st.columns(2)
+                k1.metric("Rule F1 (static)", f"{rule_f1:.3f}")
+                k2.metric("D XGBoost F1 (static)", f"{d_f1:.3f}")
 
-        ops = read_csv("history2_operating_points.csv")
-        if ops is not None:
-            shown = True
-            st.write(f"Operating points, {ops['setup'].iloc[0]}, {ops['model'].iloc[0]}. Thresholds from "
-                     "training predictions only, precision and recall on the test part.")
-            five = ops[ops["split"].str.startswith("seed")]
-            st.dataframe(five.groupby("operating point", sort=False)[["threshold", "precision", "recall"]]
-                         .mean().round(3).rename(index=lambda s: f"{s} (mean of 5 splits)"))
-            st.dataframe(ops[ops["split"] == "temporal"].drop(columns=["setup", "model"])
-                         .reset_index(drop=True))
-        if (REPORT_DIR / "pr_curve_history2.png").exists():
-            st.image(str(REPORT_DIR / "pr_curve_history2.png"), width=480)
+            ops = read_csv("history2_operating_points.csv")
+            if ops is not None:
+                shown = True
+                st.write(f"Operating points, {ops['setup'].iloc[0]}, {ops['model'].iloc[0]}. Thresholds from "
+                         "training predictions only, precision and recall on the test part.")
+                five = ops[ops["split"].str.startswith("seed")]
+                st.dataframe(five.groupby("operating point", sort=False)[["threshold", "precision", "recall"]]
+                             .mean().round(3).rename(index=lambda s: f"{s} (mean of 5 splits)"))
+                st.dataframe(ops[ops["split"] == "temporal"].drop(columns=["setup", "model"])
+                             .reset_index(drop=True))
+            if (REPORT_DIR / "pr_curve_history2.png").exists():
+                st.image(str(REPORT_DIR / "pr_curve_history2.png"), width=480)
 
-        fin = read_json("history_final_metrics.json")
-        if fin is not None:
-            shown = True
-            st.write(f"Saved history model ({fin['model']}, setup {fin['setup']}), held out 20 percent "
-                     f"of locations, split seed {fin['split_seed']}.")
-            st.dataframe(pd.DataFrame(fin["operating_points"]).T)
+            fin = read_json("history_final_metrics.json")
+            if fin is not None:
+                shown = True
+                st.write(f"Saved history model ({fin['model']}, setup {fin['setup']}), held out 20 percent "
+                         f"of locations, split seed {fin['split_seed']}.")
+                st.dataframe(pd.DataFrame(fin["operating_points"]).T)
 
-        reg = read_csv("region_eval_type_region.csv")
-        if reg is not None:
-            shown = True
-            st.write("Instant tier, leave one region out (train on two regions, test on the third).")
-            st.dataframe(reg.round(3))
+            reg = read_csv("region_eval_type_region.csv")
+            if reg is not None:
+                shown = True
+                st.write("Instant tier, leave one region out (train on two regions, test on the third).")
+                st.dataframe(reg.round(3))
 
-        inst = read_json(f"metrics_{TAG}.json")
-        if inst is not None:
-            shown = True
-            st.write("Instant tier, held out test split.")
-            res = pd.DataFrame(inst["results"]).T[["precision_static", "recall_static", "f1_static",
-                                                  "pr_auc_static"]].round(3)
-            st.dataframe(res)
+            inst = read_json(f"metrics_{TAG}.json")
+            if inst is not None:
+                shown = True
+                st.write("Instant tier, held out test split.")
+                res = pd.DataFrame(inst["results"]).T[["precision_static", "recall_static", "f1_static",
+                                                      "pr_auc_static"]].round(3)
+                st.dataframe(res)
 
-        if not shown:
-            st.info("No report files found in reports/.")
+            if not shown:
+                st.info("No report files found in reports/.")
 
-        st.markdown(
-            "**How to read these results.** The labels come from NASA's own repeat based static flag, "
-            "not from independent ground truth. The history tier uses past detections of the same "
-            "place, which is close to restating that definition, so its scores show that past "
-            "detections predict NASA's flag, not that the flag is correct. A one line rule on the "
-            "count of recent days is shown next to the models: much of the history gain is already "
-            "in that rule. The instant tier uses a single reading and is much weaker.")
+            st.markdown(
+                "**How to read these results.** The labels come from NASA's own repeat based static flag, "
+                "not from independent ground truth. The history tier uses past detections of the same "
+                "place, which is close to restating that definition, so its scores show that past "
+                "detections predict NASA's flag, not that the flag is correct. A one line rule on the "
+                "count of recent days is shown next to the models: much of the history gain is already "
+                "in that rule. The instant tier uses a single reading and is much weaker.")
 
 
 LIVE_SRC = "Live near real time"
@@ -1496,9 +1498,10 @@ with tab_earth:
     if tab_earth.open:
         earth_tab()
 
-with tab_data:
-    if tab_data.open:
-        data_tab()
+if SHOW_ANALYSIS_TABS:
+    with tab_data:
+        if tab_data.open:
+            data_tab()
 
 with tab_live:
     if tab_live.open:

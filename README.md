@@ -100,13 +100,13 @@ Leave one region out, the earlier instant results and the history comparisons ar
 
 ## Front page
 
-The app opens on the Earth tab and shows live near real time detections. Tabs in order: Earth, Data and features, Classify a new file, Results (two analysis tabs are hidden, see Analysis tabs). The old Map tab was removed: its Show options, geography filters and counts were already in Earth, and its Only held out test detections box and Date range slider moved into the archive mode of Earth.
+The app opens on the Earth tab and shows live near real time detections. The default view has two tabs, in order: Earth and Classify a new file (four analysis tabs are hidden, see Analysis tabs). The old Map tab was removed: its Show options, geography filters and counts were already in Earth, and its Only held out test detections box and Date range slider moved into the archive mode of Earth.
 
 Defaults. Data source: Live near real time. Model tier (a control of the Earth tab, used by both sources): With history, with the precision >= 0.90 operating point. Detections: Fires, with Include uncertain off. Live window: the last 24 hours (6, 24 or 72 hours can be chosen). The title says "Detections of the last 24 hours, classified by the model" (the hours follow the window). The sidebar tier stays on Instant for Classify a new file, because an uploaded file has no past detections of its own places for the history tier: that tab says so, and warns when a file spans fewer than 30 days with the history tier.
 
 Classify a new file. The uploaded detections are drawn on the same globe as the Earth tab (satellites toggle, Fires, Static sources and Both selector, click zoom with the pixel footprint, the detail drawer), with a random sample of at most 30,000 points and counters that count every point. It uses the sidebar tier and keeps its warnings. A point of an uploaded file has no live store behind it, so its drawer shows what the file contains (the verdict from the saved models, the detection facts, the place, and the spread and the days seen inside the file only) and says that land, weather, people, response and the history of the place outside the file are unavailable.
 
-Data and features. The second tab explains the data and is read at run time from the saved reports, the saved models, the code constants and the live store, so none of its numbers is typed in (`src/datainfo.py`). It has the data sources (the Suomi NPP archive with the type field, the NOAA-20 and NOAA-21 live feed without it, and the end of Suomi NPP delivery), the labels (which type values are kept and which are dropped), a table of the regions with their rows and static share, the Instant and With history feature tables with a plain meaning for each (the labels of the detail drawer), the splits and checks (grouped, temporal, leave one region out, the majority baseline, the night baseline and the one line rule, with their PR-AUC), and the live store (rows, regions, sensors, newest detection and how many regions are not in the training data).
+Data and features (a hidden analysis tab, see Analysis tabs). The tab explains the data and is read at run time from the saved reports, the saved models, the code constants and the live store, so none of its numbers is typed in (`src/datainfo.py`). It has the data sources (the Suomi NPP archive with the type field, the NOAA-20 and NOAA-21 live feed without it, and the end of Suomi NPP delivery), the labels (which type values are kept and which are dropped), a table of the regions with their rows and static share, the Instant and With history feature tables with a plain meaning for each (the labels of the detail drawer), the splits and checks (grouped, temporal, leave one region out, the majority baseline, the night baseline and the one line rule, with their PR-AUC), and the live store (rows, regions, sensors, newest detection and how many regions are not in the training data).
 
 Historical archive. Named "Historical archive (Jan to Jun 2025, includes the data the models were trained on)", with the banner "These detections include the training data. Use Only held out test detections for evaluation." It has a Date range slider whose default is the last 7 days of the data (2025-06-24 to 2025-06-30, so six months of points are not drawn at once; the full range stays selectable), the Only held out test detections box, and the Show options Raw detections, Model prediction, Ground truth and Errors only. It uses the model tier and operating point chosen on the Earth tab.
 
@@ -116,7 +116,7 @@ Update live data. The button starts `python -m src.ingest --once` in a backgroun
 
 ## Analysis tabs
 
-The tabs "Why a spot is static" and "Model metrics" are hidden. Their code, data, reports and tests are all still there. While the switch is off the two tabs are not created and their code does not run, so the app starts faster. To show them again, start the app with the environment variable `SHOW_ANALYSIS_TABS=1` (in PowerShell: `$env:SHOW_ANALYSIS_TABS = "1"; streamlit run app/app.py`), or set `SHOW_ANALYSIS_TABS = True` in `src/config.py`. The tabs then appear between the others in their old places: Earth, Data and features, Why a spot is static, Classify a new file, Model metrics, Results.
+The four tabs "Data and features", "Why a spot is static", "Model metrics" and "Results" are hidden. Their code, data, reports and tests are all still there. While the switch is off the four tabs are not created and their code does not run, so the app starts faster and its default view has two tabs: Earth and Classify a new file. To show them again, start the app with the environment variable `SHOW_ANALYSIS_TABS=1` (in PowerShell: `$env:SHOW_ANALYSIS_TABS = "1"; streamlit run app/app.py`), or set `SHOW_ANALYSIS_TABS = True` in `src/config.py`. The tabs then appear in their old places, six in all: Earth, Data and features, Why a spot is static, Classify a new file, Model metrics, Results.
 
 ## Earth
 
@@ -233,7 +233,7 @@ Fresh files can be downloaded from the FIRMS Active Fire Data page, https://firm
 ## Structure
 
     src/       data loading, labelling, features, history features, models, evaluation
-    app/       Streamlit app (Earth front page, upload, results)
+    app/       Streamlit app (Earth front page, upload, four hidden analysis tabs)
     api/       FastAPI prediction API (health, model, predict, live latest)
     tests/     leakage test for the history features, synthetic data generator
     reports/   tables, figures and summaries written by the scripts

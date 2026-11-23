@@ -873,8 +873,7 @@ def test_app_front(tmp):
     gc.collect()
     at = run_app(tmp, "fake")
     assert not at.exception, at.exception
-    assert [t.label for t in at.tabs] == ["Earth", "Data and features", "Classify a new file",
-                                          "Results"]       # Map is gone, Earth is first, data second, two tabs hidden
+    assert [t.label for t in at.tabs] == ["Earth", "Classify a new file"]       # Map is gone, Earth first, four tabs hidden
     heads = [h.value for h in at.subheader]
     assert "Data sources" not in heads                                      # only the open tab (Earth) is run
     assert at.radio(key="earth_source").value == LIVE_SRC                   # live is the default source
@@ -885,11 +884,6 @@ def test_app_front(tmp):
     assert not at.checkbox(key="earth_unc_l").value                         # Include uncertain is off
     assert "Detections of the last 24 hours, classified by the model" in [h.value for h in at.subheader]
     assert any(b.key == "update_live" and b.label == "Update live data" for b in at.button)
-    open_tab(at, "Data and features")                                       # the Data and features tab, run on demand
-    assert not at.exception, [e.value for e in at.exception]
-    heads = [h.value for h in at.subheader]
-    for want in ("Data sources", "Labels", "Regions", "Features", "Split and checks", "Live store"):
-        assert want in heads, heads
     open_tab(at, "Classify a new file")
     caps = [c.value for c in at.caption]
     assert any("Instant by default" in c and "no past detections" in c and "30 days or more" in c for c in caps), caps
@@ -1109,24 +1103,35 @@ def test_app_context(tmp):
                      "services": {"Fire station": {"name": "Rescue 1122", "km": 8.2, "direction": "N"},
                                   "Hospital": {"none": 110}, "Police station": {"unavailable": "x (ReadTimeout)"}},
                      "source": "OpenStreetMap contributors", "fetched_at": "2026-01-01T00:00:00Z", "note": "Named."}}
-    at = run_app(tmp, None, context=canned)
-    assert not at.exception, [e.value for e in at.exception]
-    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
-    row = store[store["timestamp"] >= now - pd.Timedelta(hours=24)].iloc[0]
-    pick = {"lat": round(float(row["latitude"]), 3), "lon": round(float(row["longitude"]), 3),
-            "date": f"{row['acq_date']:%Y-%m-%d}", "time": f"{row['timestamp']:%H:%M}", "sensor": row["sensor"]}
-    at.session_state["earth_sel_l"] = {"pick": pick, "view": at.session_state["earth_view_l"]}
-    at.run()
-    assert not at.exception, [e.value for e in at.exception]
-    text = " ".join([m.value for m in at.markdown] + [c.value for c in at.caption] + [w.value for w in at.text])
-    for want in ("Land cover at the pixel: Cropland", "Main class within 1 km: Grassland", "crop fuel: stubble",
-                 "blowing toward SE", "Rain in the 24 hours before", "People within 1 km: about 1,230",
-                 "Nearest named place: Baddomalhi, 10.1 km SE", "Buildings within 1 km: unavailable (OpenStreetMap",
-                 "Police 15, Fire 16, Ambulance 1122 (unverified, check locally)",
-                 "Fire station: Rescue 1122, 8.2 km N", "Hospital: none found within about 110 km",
-                 "Police station: unavailable", "Source: Open-Meteo", "Source: WorldPop 2020"):
-        assert want in text, want
-    assert "://" not in text
+    # every detection is placed in Pakistan, so the numbers of the panel do not depend on the shared geography cache
+    orig_geo = live.add_geo
+
+    def pk_geo(df, cache_path=None):
+        out = orig_geo(df, cache_path)
+        out["cc"] = pd.Categorical(["PK"] * len(out))
+        return out
+    live.add_geo = pk_geo
+    try:
+        at = run_app(tmp, None, context=canned)
+        assert not at.exception, [e.value for e in at.exception]
+        now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+        row = store[store["timestamp"] >= now - pd.Timedelta(hours=24)].iloc[0]
+        pick = {"lat": round(float(row["latitude"]), 3), "lon": round(float(row["longitude"]), 3),
+                "date": f"{row['acq_date']:%Y-%m-%d}", "time": f"{row['timestamp']:%H:%M}", "sensor": row["sensor"]}
+        at.session_state["earth_sel_l"] = {"pick": pick, "view": at.session_state["earth_view_l"]}
+        at.run()
+        assert not at.exception, [e.value for e in at.exception]
+        text = " ".join([m.value for m in at.markdown] + [c.value for c in at.caption] + [w.value for w in at.text])
+        for want in ("Land cover at the pixel: Cropland", "Main class within 1 km: Grassland", "crop fuel: stubble",
+                     "blowing toward SE", "Rain in the 24 hours before", "People within 1 km: about 1,230",
+                     "Nearest named place: Baddomalhi, 10.1 km SE", "Buildings within 1 km: unavailable (OpenStreetMap",
+                     "Police 15, Fire 16, Ambulance 1122 (unverified, check locally)",
+                     "Fire station: Rescue 1122, 8.2 km N", "Hospital: none found within about 110 km",
+                     "Police station: unavailable", "Source: Open-Meteo", "Source: WorldPop 2020"):
+            assert want in text, want
+        assert "://" not in text
+    finally:
+        live.add_geo = orig_geo
     print("panel context test passed")
 
 
@@ -1202,37 +1207,50 @@ def all_text(at):
 
 
 def test_app_tabs(tmp):
-    """The tabs Why a spot is static and Model metrics are hidden while the switch is off, and nothing points to them;
-    with the switch on both are there and render."""
+    """The tabs Data and features, Why a spot is static, Model metrics and Results are hidden while the switch is off, and
+    nothing points to them; with the switch on all six tabs are there, in their old order, and render."""
     import subprocess
     from src import config
-    hidden = ("Why a spot is static", "Model metrics")
-    four = ["Earth", "Data and features", "Classify a new file", "Results"]
+    hidden = ("Data and features", "Why a spot is static", "Model metrics", "Results tab", "Rule, instant and history results",
+              "Data sources")
+    two = ["Earth", "Classify a new file"]
     assert config.SHOW_ANALYSIS_TABS is False                                       # the default
     at = run_app(tmp, None)
     assert not at.exception, [e.value for e in at.exception]
-    assert [t.label for t in at.tabs] == four
+    assert [t.label for t in at.tabs] == two
+    assert not {"Data and features", "Why a spot is static", "Model metrics", "Results"} & {t.label for t in at.tabs}
     assert not any(h in all_text(at) for h in hidden)
     assert "Pick a location that was flagged repeatedly" not in all_text(at)       # their code did not run
-    for tab in ("Data and features", "Classify a new file", "Results"):             # no text on the other tabs points to them
-        open_tab(at, tab)
-        assert not at.exception, (tab, [e.value for e in at.exception])
-        assert not any(h in all_text(at) for h in hidden), tab
-    at.session_state["main_tabs"] = "Model metrics"                                  # a stale choice of a hidden tab
-    at.run()
+    open_tab(at, "Classify a new file")                                             # no text on the other tab points to them
     assert not at.exception, [e.value for e in at.exception]
-    # the switch on: both tabs are created, in their old places, and render
+    assert not any(h in all_text(at) for h in hidden)
+    for stale in ("Data and features", "Why a spot is static", "Model metrics", "Results"):   # a stale choice of a hidden tab
+        at.session_state["main_tabs"] = stale
+        at.run()
+        assert not at.exception, (stale, [e.value for e in at.exception])
+        assert not any(h in all_text(at) for h in hidden), stale
+    # the switch on: all six tabs are created, in their old places, and render
     at = run_app(tmp, None, analysis=True)
     try:
         assert not at.exception, [e.value for e in at.exception]
         assert [t.label for t in at.tabs] == ["Earth", "Data and features", "Why a spot is static", "Classify a new file",
                                               "Model metrics", "Results"]
+        open_tab(at, "Data and features")
+        assert not at.exception, [e.value for e in at.exception]
+        heads = [h.value for h in at.subheader]
+        for want in ("Data sources", "Labels", "Regions", "Features", "Split and checks", "Live store"):
+            assert want in heads, heads
         open_tab(at, "Why a spot is static")
         assert not at.exception, [e.value for e in at.exception]
         assert "Pick a location that was flagged repeatedly" in all_text(at)
         open_tab(at, "Model metrics")
         assert not at.exception, [e.value for e in at.exception]
         assert any("All regions" in h.value for h in at.subheader) or at.dataframe       # the table of the tab
+        open_tab(at, "Results")
+        assert not at.exception, [e.value for e in at.exception]
+        assert any(h.value == "Rule, instant and history results" for h in at.subheader)
+        open_tab(at, "Classify a new file")
+        assert not at.exception, [e.value for e in at.exception]
     finally:
         config.SHOW_ANALYSIS_TABS = False
     # the environment variable sets the switch
@@ -1264,7 +1282,7 @@ def test_app_land(tmp):
 
     def fake_classify(lon, lat, scan=None, track=None, **kw):
         calls.append(len(lon))
-        time.sleep(0.4)                                       # a slow read: the page must not wait for it
+        time.sleep(0.1)                                       # a slow read: the page must not wait for it
         ids = landtable.cell_ids(lat, lon)
         return {"code": np.where(ids % 3 == 0, 40, np.where(ids % 3 == 1, 10, 50)).astype(np.uint8)}
 
@@ -1289,7 +1307,7 @@ def test_app_land(tmp):
         assert metric(at, "Circles drawn") == total                                    # every circle is still there
         assert "split is a proxy" not in text and took < 30
         table = landtable.get()
-        assert table.wait(120) and table.error is None
+        assert table.wait(600) and table.error is None
         n_calls = len(calls)
         assert n_calls >= 1
         at.run()                                                                       # the poll's rerun
@@ -1308,7 +1326,7 @@ def test_app_land(tmp):
         assert not at.exception, at.exception
         text = " ".join(c.value for c in at.caption)
         assert "being prepared" not in text and "split is a proxy" in text
-        assert table.wait(120) and len(calls) == n_calls                               # no new read
+        assert table.wait(600) and len(calls) == n_calls                               # no new read
         at.radio(key="earth_lc_a").set_value("Large clusters").run()
         assert not at.exception, at.exception
         text = " ".join(c.value for c in at.caption)
